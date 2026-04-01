@@ -1,0 +1,22 @@
+Subject: Action Needed: Complete Your Project Management Training
+Dear {{name}},
+
+We are writing to follow up on your outstanding project management training. We know your time is valuable, and we want to make sure this stays on your radar.
+
+The following training still requires your attention:
+  {{missing_trainings}}
+
+Completing this training is an important step, not just for compliance, but for your own professional effectiveness. Here is what you gain:
+  - Stronger delivery capabilities recognized across the organization
+  - Tools and frameworks that make your day-to-day project work more efficient
+  - Alignment with the standards that enable better collaboration across teams
+  - A certified credential that demonstrates your commitment to excellence
+
+Many of your peers have already completed these courses and are applying the insights in their daily work. We would like to help you join them.
+
+We encourage you to set aside time in the coming days to complete this training. If you are facing any challenges that are preventing you from doing so, whether scheduling, access, or workload, please let us know. We are here to support you.
+
+Your contribution to our projects matters, and this training will help you make an even greater impact.
+
+Kind regards,
+Project Management Office

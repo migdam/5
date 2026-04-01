@@ -1,0 +1,22 @@
+Subject: Reminder (Stage {{stage}}): Your Project Management Training Is Still Outstanding
+Dear {{name}},
+
+This is a continued reminder regarding your outstanding project management training.
+
+The following training remains to be completed:
+  {{missing_trainings}}
+
+We understand that competing priorities can make it difficult to find time for training. However, this certification is an important part of our shared commitment to project delivery excellence.
+
+Completing this training will:
+  - Strengthen your project management toolkit
+  - Demonstrate your commitment to professional standards
+  - Support better outcomes for you and your project teams
+  - Ensure alignment with organizational expectations
+
+We genuinely want to help you succeed. If there is anything we can do to support you in completing this training, whether it is scheduling assistance, workload discussions, or technical support, please reach out to us directly.
+
+We look forward to celebrating your completion soon.
+
+With appreciation,
+Project Management Office

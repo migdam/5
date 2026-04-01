@@ -1,0 +1,21 @@
+Subject: Friendly Reminder: Project Management Training Available for You
+Dear {{name}},
+
+I hope this message finds you well.
+
+As part of our ongoing commitment to supporting project managers in delivering excellent results, we wanted to let you know that there are training opportunities available to you that can strengthen your skills and confidence.
+
+You currently have the following training still to complete:
+  {{missing_trainings}}
+
+These courses are designed to help you:
+  - Build a stronger foundation in project delivery best practices
+  - Gain practical tools and frameworks you can apply immediately
+  - Align with the shared standards that support consistency across our projects
+
+There is no rush, but we encourage you to explore these courses at your earliest convenience. Completing them will help you feel even more prepared and supported in your role.
+
+If you have any questions about the training or need help accessing the platform, please do not hesitate to reach out.
+
+Warm regards,
+Project Management Office

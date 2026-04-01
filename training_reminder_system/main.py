@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Training Reminder System - Main Entry Point.
+
+Processes ePPM assignment and Fuse training Excel files to identify
+IT Project Managers who need training reminders. Generates email-ready
+output files for manual sending.
+"""
+import sys
+import os
+import logging
+
+# Ensure project root is on the path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from src.config_loader import load_config
+from src.utils import setup_logging
+from src.repository import Database
+from src.file_loader import load_eppm, load_training
+from src.normalizer import extract_unique_pms, normalize_name, normalize_email
+from src.matcher import match_people
+from src.evaluator import evaluate_training, get_eligible_pms
+from src.communication import generate_reminders
+from src.reporting import generate_outputs
+from src.archiver import archive_files
+
+logger = logging.getLogger(__name__)
+
+
+def run_cycle(config_path="config.yaml"):
+    """Execute a single processing cycle."""
+    # Load configuration
+    config = load_config(config_path)
+
+    # Setup logging
+    log_file = setup_logging(config["paths"]["log_folder"])
+
+    logger.info("=" * 60)
+    logger.info("TRAINING REMINDER SYSTEM - Starting new cycle")
+    logger.info("=" * 60)
+
+    # Initialize database
+    db = Database(config["paths"]["database"])
+    cycle_id = db.start_cycle()
+
+    try:
+        # --- Step 1: Load Excel files ---
+        logger.info("Step 1: Loading input files")
+        eppm_df, eppm_path = load_eppm(config)
+        training_df, training_path = load_training(config)
+        input_files = [("eppm", eppm_path), ("fuse", training_path)]
+
+        # --- Step 2: Extract unique PMs from ePPM ---
+        logger.info("Step 2: Extracting unique PMs from ePPM")
+        unique_pms, all_pms_df = extract_unique_pms(eppm_df)
+
+        if unique_pms.empty:
+            logger.warning("No PMs found in ePPM data. Ending cycle.")
+            db.complete_cycle(cycle_id, "completed", "No PMs found")
+            db.close()
+            return
+
+        # Store PMs and assignment snapshots in database
+        eppm_filename = os.path.basename(eppm_path)
+        for _, pm_row in unique_pms.iterrows():
+            pm_id = db.upsert_project_manager(
+                pm_row["full_name"],
+                pm_row["email"],
+                pm_row["normalized_name"],
+            )
+
+        # Store assignment snapshots
+        for _, row in all_pms_df.iterrows():
+            pm_id = db.get_project_manager_id(
+                email=normalize_email(row["email"]) if row.get("email") else None,
+                normalized_name=row.get("normalized_name", ""),
+            )
+            if pm_id:
+                db.insert_assignment_snapshot(
+                    cycle_id, pm_id,
+                    row.get("project_name", ""),
+                    row.get("project_id", ""),
+                    row.get("project_status", ""),
+                    eppm_filename,
+                )
+
+        # --- Step 3: Match PMs against training records ---
+        logger.info("Step 3: Matching PMs against training records")
+        matched_pms, unmatched_pms, unmatched_training = match_people(
+            unique_pms, training_df, config
+        )
+
+        # Log unmatched records as data quality issues
+        for pm in unmatched_pms:
+            db.insert_data_quality_issue(
+                cycle_id, "unmatched_pm", pm["full_name"], pm.get("email"),
+                f"PM '{pm['full_name']}' could not be matched to any training record."
+            )
+
+        # --- Step 4: Evaluate training ---
+        logger.info("Step 4: Evaluating training completion")
+        evaluated_pms = evaluate_training(matched_pms, training_df, config)
+
+        # Store training snapshots
+        training_filename = os.path.basename(training_path)
+        for pm in evaluated_pms:
+            pm_id = db.get_project_manager_id(
+                email=normalize_email(pm["email"]) if pm.get("email") else None,
+                normalized_name=pm.get("normalized_name", ""),
+            )
+            if pm_id:
+                overall = "complete" if pm["all_complete"] else "incomplete"
+                db.insert_training_snapshot(
+                    cycle_id, pm_id,
+                    "completed" if pm.get("fundamentals_completed") else "incomplete",
+                    "completed" if pm.get("advanced_completed") else "incomplete",
+                    str(pm.get("fundamentals_date", "")) if pm.get("fundamentals_date") else None,
+                    str(pm.get("advanced_date", "")) if pm.get("advanced_date") else None,
+                    overall,
+                    training_filename,
+                )
+
+        # --- Step 5: Determine eligible PMs ---
+        logger.info("Step 5: Determining eligible PMs for reminders")
+        eligible_pms, skipped_complete, skipped_inactive = get_eligible_pms(
+            evaluated_pms, all_pms_df, config
+        )
+
+        # --- Step 6: Generate reminders ---
+        logger.info("Step 6: Generating reminders")
+        reminders, skipped_no_email = generate_reminders(eligible_pms, db, cycle_id, config)
+
+        # --- Step 7: Generate output files ---
+        logger.info("Step 7: Generating output files")
+        summary_data = {
+            "cycle_id": cycle_id,
+            "total_pms_in_eppm": len(unique_pms),
+            "total_pm_assignments": len(all_pms_df),
+            "matched_pms": len(matched_pms),
+            "unmatched_pms": len(unmatched_pms),
+            "pms_training_complete": skipped_complete,
+            "pms_inactive_projects": skipped_inactive,
+            "pms_eligible_for_reminder": len(eligible_pms),
+            "reminders_generated": len(reminders),
+            "skipped_no_email": skipped_no_email,
+            "unmatched_training_people": len(unmatched_training),
+        }
+
+        output_dir = generate_outputs(reminders, summary_data, config, cycle_id)
+
+        # --- Step 8: Archive input files ---
+        logger.info("Step 8: Archiving processed files")
+        archive_files(input_files, config, cycle_id, db)
+
+        # --- Complete cycle ---
+        notes = f"Generated {len(reminders)} reminders. Output: {output_dir}"
+        db.complete_cycle(cycle_id, "completed", notes)
+
+        # Print summary
+        print("\n" + "=" * 60)
+        print("TRAINING REMINDER SYSTEM - Cycle Complete")
+        print("=" * 60)
+        for key, value in summary_data.items():
+            label = key.replace("_", " ").title()
+            print(f"  {label}: {value}")
+        print(f"\n  Output folder: {output_dir}")
+        print("=" * 60 + "\n")
+
+        logger.info("Cycle %d completed successfully", cycle_id)
+
+    except Exception as e:
+        logger.error("Cycle %d failed: %s", cycle_id, str(e), exc_info=True)
+        db.complete_cycle(cycle_id, "failed", str(e))
+        raise
+    finally:
+        db.close()
+
+    return summary_data
+
+
+if __name__ == "__main__":
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
+    run_cycle(config_path)

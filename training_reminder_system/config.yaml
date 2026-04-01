@@ -1,0 +1,95 @@
+# Training Reminder System Configuration
+# ========================================
+
+paths:
+  input_folder: "data/input"
+  output_folder: "data/output"
+  archive_folder: "data/archive"
+  database: "data/training_reminders.db"
+  log_folder: "logs"
+
+# Column mappings: logical name -> actual Excel column header
+# Adjust these if your Excel files have different column names
+column_mapping:
+  eppm:
+    project_number: "Project number"
+    project_name: "Project Name"
+    leading_function: "Leading Function"
+    sub_function: "Sub Function"
+    active_stage: "Active Stage"
+    project_status: "Project Status"
+    project_archetype: "Project Archetype"
+    project_owner: "Project Owner"
+    project_owner_email: "Project Owner Email"
+    project_manager: "Project Manager"
+    project_manager_email: "Project Manager Email"
+    it_project_manager: "IT Project Manager"
+    it_project_manager_email: "IT Project Manager Email"
+    it_portfolio_manager: "IT Portfolio Manager"
+    it_portfolio_manager_email: "IT Portfolio Manager Email"
+    project_compliance: "Project Compliance"
+
+  fuse:
+    full_name: "Full Name"
+    email: "Email"
+    employee_group: "Employee Group"
+    region: "Geographical Region"
+    country: "Country"
+    function: "Function"
+    position: "Position"
+    content_id: "Content ID"
+    content_title: "Content Title"
+    course_status: "Course Status"
+    start_date: "Start Date"
+    completion_date: "Completion Date"
+    score: "Score"
+
+# Status mappings: what values indicate completed/active
+status_mapping:
+  training_completed_values:
+    - "completed"
+  training_incomplete_values:
+    - "incomplete"
+  project_active_statuses:
+    - "Not Completed"
+  project_completed_statuses:
+    - "Completed"
+
+# Required training courses: content titles that PMs must complete
+required_training:
+  fundamentals:
+    content_title: "Managing Projects for Business Success - Fundamentals - Certification Test"
+    label: "Fundamentals"
+  advanced:
+    content_title: "Certification Test for Managing Projects for Business Success (Advanced)"
+    label: "Advanced"
+
+# Template file paths (relative to project root)
+templates:
+  stage_1: "templates/reminder_stage_1.txt"
+  stage_2: "templates/reminder_stage_2.txt"
+  stage_3: "templates/reminder_stage_3.txt"
+  default: "templates/reminder_stage_default.txt"
+
+# Matching rules
+matching:
+  # Priority order for cross-file matching
+  match_by_email: true
+  match_by_exact_name: true
+  match_by_normalized_name: true
+
+# Communication options
+communication:
+  max_reminder_stage: 0  # 0 means no limit; uses default template for stage > 3
+
+# Output options
+output:
+  generate_per_recipient_files: true
+  generate_per_stage_folders: true
+  generate_csv: true
+  generate_summary: true
+
+# File identification patterns (glob patterns to find input files)
+file_patterns:
+  eppm: "*ePPM*.*xlsx"
+  fuse: "*Fuse*.*xlsx"

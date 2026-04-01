@@ -1,0 +1,19 @@
+# Generated data
+data/input/*.xlsx
+data/archive/
+data/output/
+data/simulation/
+data/*.db
+
+# Logs
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/

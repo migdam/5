@@ -132,7 +132,7 @@ def run_cycle(config_path="config.yaml"):
 
         # --- Step 5: Determine eligible PMs ---
         logger.info("Step 5: Determining eligible PMs for reminders")
-        eligible_pms, skipped_complete, skipped_inactive = get_eligible_pms(
+        eligible_pms, skipped_complete, skipped_inactive, nice_to_have_pms = get_eligible_pms(
             evaluated_pms, all_pms_df, config
         )
 
@@ -172,6 +172,7 @@ def run_cycle(config_path="config.yaml"):
             "matched_pms": len(matched_pms),
             "unmatched_pms": len(unmatched_pms),
             "pms_training_complete": skipped_complete,
+            "pms_nice_to_have_only": len(nice_to_have_pms),
             "pms_inactive_projects": skipped_inactive,
             "pms_eligible_for_reminder": len(eligible_pms),
             "training_reminders_generated": len(reminders),
@@ -189,6 +190,7 @@ def run_cycle(config_path="config.yaml"):
             missing_itpm_reminders=missing_itpm_reminders,
             escalation_reminders=escalation_reminders,
             role_changed_reminders=role_changed_reminders,
+            nice_to_have_pms=nice_to_have_pms,
         )
 
         # --- Step 8: Archive input files ---

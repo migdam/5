@@ -36,7 +36,7 @@ def determine_reminder_stage(pm_id, db):
     return next_stage
 
 
-def render_reminder(name, email, missing_trainings, stage, config):
+def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_trainings=None):
     """Render a reminder email using the appropriate stage template.
 
     Passes structured training gap info to templates so they can
@@ -45,11 +45,16 @@ def render_reminder(name, email, missing_trainings, stage, config):
     - missing_advanced: bool
     - missing_both: bool (both missing)
     - completed_fundamentals: bool (fundamentals done, only advanced left)
+    - nice_to_have_trainings: list of trainings that are optional (e.g. Fundamentals when Advanced is done)
+    - has_nice_to_have: bool
 
     Returns:
         dict with recipient_email, subject, body, stage.
     """
     template_path = get_template_for_stage(stage, config)
+    if nice_to_have_trainings is None:
+        nice_to_have_trainings = []
+
     template_content = load_template(template_path)
 
     # Split template into subject and body (first line is subject)
@@ -74,6 +79,8 @@ def render_reminder(name, email, missing_trainings, stage, config):
         "missing_advanced": missing_advanced,
         "missing_both": missing_both,
         "completed_fundamentals": completed_fundamentals,
+        "nice_to_have_trainings": nice_to_have_trainings,
+        "has_nice_to_have": len(nice_to_have_trainings) > 0,
     }
 
     # Render with Jinja2
@@ -109,6 +116,7 @@ def generate_reminders(eligible_pms, db, cycle_id, config):
         name = pm["full_name"]
         email = pm.get("email")
         missing = pm["missing_trainings"]
+        nice_to_have = pm.get("nice_to_have_trainings", [])
 
         # Skip if no email
         if not email or str(email) in ("", "None", "nan"):
@@ -136,7 +144,7 @@ def generate_reminders(eligible_pms, db, cycle_id, config):
             stage = max_stage
 
         # Render reminder
-        reminder = render_reminder(name, email, missing, stage, config)
+        reminder = render_reminder(name, email, missing, stage, config, nice_to_have)
 
         # Store in database
         db.insert_communication(cycle_id, pm_id, stage, reminder["subject"], reminder["body"])

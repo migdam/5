@@ -685,12 +685,18 @@ def generate_all_cycles(rng, max_cycles=30):
                 person_training_state[pid] = {"fund_completed": False, "adv_completed": False}
 
             state = person_training_state[pid]
-            # Progress training: fundamentals first, then advanced
+            # Progress training: usually fundamentals first, then advanced
+            # But ~8% of people complete Advanced directly (skipping Fundamentals)
             if not state["fund_completed"]:
                 if rng.random() < fund_chance:
                     state["fund_completed"] = True
-            if state["fund_completed"] and not state["adv_completed"]:
-                if rng.random() < adv_chance:
+            if not state["adv_completed"]:
+                if state["fund_completed"]:
+                    # Normal path: fundamentals done, now try advanced
+                    if rng.random() < adv_chance:
+                        state["adv_completed"] = True
+                elif rng.random() < adv_chance * 0.08:
+                    # Skip path: complete advanced without fundamentals (~8% of cases)
                     state["adv_completed"] = True
 
         # --- Evolve ePPM project state ---

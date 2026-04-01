@@ -49,7 +49,7 @@ def test_all_complete():
 
 
 def test_fundamentals_missing():
-    """PM with only advanced completed."""
+    """PM with only advanced completed — fundamentals becomes nice-to-have."""
     training = make_training_df([
         {"content_title": "Certification Test for Managing Projects for Business Success (Advanced)",
          "course_status": "completed", "completion_date": "2026-02-01"},
@@ -60,8 +60,10 @@ def test_fundamentals_missing():
         "match_method": "email", "training_indices": [0],
     }]
     result = evaluate_training(matched, training, make_config())
-    assert result[0]["all_complete"] is False
-    assert "Fundamentals" in result[0]["missing_trainings"]
+    # Advanced done means fundamentals is nice-to-have, not required
+    assert result[0]["all_complete"] is True
+    assert result[0]["missing_trainings"] == []
+    assert "Fundamentals" in result[0]["nice_to_have_trainings"]
 
 
 def test_both_missing():
@@ -113,7 +115,7 @@ def test_get_eligible_filters_inactive():
         {"email": "inactive@corp.example", "normalized_name": "inactive pm",
          "project_status": "Completed"},
     ])
-    eligible, skipped_complete, skipped_inactive = get_eligible_pms(evaluated, all_pms, config)
+    eligible, skipped_complete, skipped_inactive, nice_to_have_only = get_eligible_pms(evaluated, all_pms, config)
     assert len(eligible) == 1
     assert eligible[0]["full_name"] == "Active PM"
     assert skipped_inactive == 1

@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def generate_outputs(reminders, summary_data, config, cycle_id,
                      missing_itpm_reminders=None, escalation_reminders=None,
-                     role_changed_reminders=None):
+                     role_changed_reminders=None, nice_to_have_pms=None):
     """Generate all output files for a processing cycle.
 
     Args:
@@ -30,6 +30,8 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
         escalation_reminders = []
     if role_changed_reminders is None:
         role_changed_reminders = []
+    if nice_to_have_pms is None:
+        nice_to_have_pms = []
 
     output_base = config["paths"]["output_folder"]
     timestamp = get_timestamp()
@@ -65,6 +67,10 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
     # 5c. Role-changed IT PM reminders
     if role_changed_reminders:
         _write_role_changed(output_dir, role_changed_reminders)
+
+    # 5d. Nice-to-have training suggestions (Advanced done, Fundamentals optional)
+    if nice_to_have_pms:
+        _write_nice_to_have(output_dir, nice_to_have_pms)
 
     # 6. Group emails (single email with all recipients in To: field)
     if output_opts.get("generate_group_emails", False):
@@ -281,6 +287,53 @@ def _write_role_changed(output_dir, reminders):
             })
 
     logger.info("Role-changed IT PM folder: %d files + CSV", len(reminders))
+
+
+def _write_nice_to_have(output_dir, nice_to_have_pms):
+    """Write optional nice-to-have training suggestions.
+
+    These are PMs who completed Advanced but not Fundamentals.
+    Fundamentals is recommended but not required for them.
+    """
+    nth_dir = os.path.join(output_dir, "nice_to_have")
+    os.makedirs(nth_dir, exist_ok=True)
+
+    # Summary file
+    summary_path = os.path.join(nth_dir, "nice_to_have_summary.txt")
+    with open(summary_path, "w", encoding="utf-8") as f:
+        f.write("=" * 60 + "\n")
+        f.write("NICE-TO-HAVE TRAINING SUGGESTIONS\n")
+        f.write("(These PMs completed Advanced but not Fundamentals)\n")
+        f.write("=" * 60 + "\n\n")
+        f.write(f"Total: {len(nice_to_have_pms)} PMs\n\n")
+        f.write("These PMs are fully certified for project delivery purposes.\n")
+        f.write("Completing Fundamentals would round out their knowledge base\n")
+        f.write("but is NOT required.\n\n")
+        f.write("-" * 60 + "\n\n")
+        for pm in sorted(nice_to_have_pms, key=lambda p: p.get("full_name", "")):
+            name = pm.get("full_name", "Unknown")
+            email = pm.get("email", "")
+            nice = ", ".join(pm.get("nice_to_have_trainings", []))
+            f.write(f"  {name} ({email})\n")
+            f.write(f"    Completed: Advanced\n")
+            f.write(f"    Suggested: {nice}\n\n")
+
+    # CSV
+    csv_path = os.path.join(nth_dir, "nice_to_have.csv")
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "name", "email", "completed", "suggested_training",
+        ])
+        writer.writeheader()
+        for pm in nice_to_have_pms:
+            writer.writerow({
+                "name": pm.get("full_name", ""),
+                "email": pm.get("email", ""),
+                "completed": "Advanced",
+                "suggested_training": ", ".join(pm.get("nice_to_have_trainings", [])),
+            })
+
+    logger.info("Nice-to-have folder: %d PMs with optional training suggestions", len(nice_to_have_pms))
 
 
 def _write_group_emails(output_dir, training_reminders, itpm_reminders, config):

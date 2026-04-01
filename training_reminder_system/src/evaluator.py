@@ -133,6 +133,17 @@ def evaluate_training(matched_pms, training_df, config):
         result["missing_trainings"] = missing
         result["all_complete"] = len(missing) == 0
 
+        # If Advanced is completed, Fundamentals is nice-to-have (not required)
+        nice_to_have = []
+        if result.get("advanced_completed") and not result.get("fundamentals_completed"):
+            if "Fundamentals" in missing:
+                missing.remove("Fundamentals")
+                nice_to_have.append("Fundamentals")
+                result["missing_trainings"] = missing
+                result["all_complete"] = len(missing) == 0
+
+        result["nice_to_have_trainings"] = nice_to_have
+
         evaluated.append(result)
 
     completed_count = sum(1 for e in evaluated if e["all_complete"])
@@ -175,6 +186,7 @@ def get_eligible_pms(evaluated_pms, all_pms_df, config):
                 active_pm_names.add(name)
 
     eligible = []
+    nice_to_have_only = []
     skipped_complete = 0
     skipped_inactive = 0
 
@@ -189,19 +201,23 @@ def get_eligible_pms(evaluated_pms, all_pms_df, config):
             continue
 
         if pm["all_complete"]:
+            # Check if they have nice-to-have trainings (e.g. Advanced done, Fundamentals optional)
+            if pm.get("nice_to_have_trainings"):
+                nice_to_have_only.append(pm)
             skipped_complete += 1
             continue
 
         eligible.append(pm)
 
     logger.info(
-        "Eligibility: %d eligible for reminders, %d completed (skipped), %d inactive (skipped)",
+        "Eligibility: %d eligible for reminders, %d completed (skipped, %d with nice-to-have), %d inactive (skipped)",
         len(eligible),
         skipped_complete,
+        len(nice_to_have_only),
         skipped_inactive,
     )
 
-    return eligible, skipped_complete, skipped_inactive
+    return eligible, skipped_complete, skipped_inactive, nice_to_have_only
 
 
 def find_projects_missing_it_pm(eppm_df, config):

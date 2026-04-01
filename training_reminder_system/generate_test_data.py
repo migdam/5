@@ -63,7 +63,13 @@ PROJECT_ARCHETYPES = [
     "Regulatory projects", "Infrastructure projects",
 ]
 
-STAGE_WEIGHTS = {"G0": 0.10, "G3": 0.35, "G5": 0.35, "Completed": 0.20}
+# Real gate distribution from ePPM data (G0→G1→G2→G3→G4→G5→G6→Completed)
+STAGE_WEIGHTS = {
+    "G0": 0.254, "G1": 0.066, "G2": 0.011, "G3": 0.225,
+    "G4": 0.155, "G5": 0.244, "G6": 0.031, "Completed": 0.015,
+}
+# Ordered gate sequence for project progression
+GATE_SEQUENCE = ["G0", "G1", "G2", "G3", "G4", "G5", "G6", "Completed"]
 ARCHETYPE_WEIGHTS = [0.30, 0.35, 0.10, 0.15, 0.10]
 
 COMPLIANCE_VALUES = ["Full compliance", "Partially compliant", "Non-compliant"]
@@ -334,28 +340,29 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
             if it_pm and rng.random() < 0.03:
                 it_port, it_port_email = it_pm, it_pm_email
 
-        # Compliance fields (sparse)
+        # Compliance fields (sparse — populated for gates the project has passed)
         g0_comp, g0_act = (None, None)
         g3_comp, g3_act = (None, None)
         g5_comp, g5_act = (None, None)
         g6_comp, g6_act = (None, None)
 
-        if stage in ("G0", "G3", "G5", "Completed"):
-            if rng.random() > 0.57:
-                g0_comp = rng.choice(COMPLIANCE_VALUES)
-                g0_act = COMPLIANCE_ACTIONS[g0_comp]
-        if stage in ("G3", "G5", "Completed"):
-            if rng.random() > 0.73:
-                g3_comp = rng.choice(COMPLIANCE_VALUES)
-                g3_act = COMPLIANCE_ACTIONS[g3_comp]
-        if stage in ("G5", "Completed"):
-            if rng.random() > 0.96:
-                g5_comp = rng.choice(COMPLIANCE_VALUES)
-                g5_act = COMPLIANCE_ACTIONS[g5_comp]
-        if stage == "Completed":
-            if rng.random() > 0.98:
-                g6_comp = rng.choice(COMPLIANCE_VALUES)
-                g6_act = COMPLIANCE_ACTIONS[g6_comp]
+        stage_idx = GATE_SEQUENCE.index(stage) if stage in GATE_SEQUENCE else 0
+        # G0 compliance if past G0
+        if stage_idx >= 1 and rng.random() > 0.57:
+            g0_comp = rng.choice(COMPLIANCE_VALUES)
+            g0_act = COMPLIANCE_ACTIONS[g0_comp]
+        # G3 compliance if past G3
+        if stage_idx >= 4 and rng.random() > 0.73:
+            g3_comp = rng.choice(COMPLIANCE_VALUES)
+            g3_act = COMPLIANCE_ACTIONS[g3_comp]
+        # G5 compliance if past G5
+        if stage_idx >= 6 and rng.random() > 0.96:
+            g5_comp = rng.choice(COMPLIANCE_VALUES)
+            g5_act = COMPLIANCE_ACTIONS[g5_comp]
+        # G6 compliance if past G6
+        if stage_idx >= 7 and rng.random() > 0.98:
+            g6_comp = rng.choice(COMPLIANCE_VALUES)
+            g6_act = COMPLIANCE_ACTIONS[g6_comp]
 
         proj_compliance = None
         if rng.random() > 0.476:
@@ -642,21 +649,30 @@ def generate_all_cycles(rng, max_cycles=15):
                 num_projects=250,
             )
             all_project_ids = [r["Project number"] for r in eppm_rows]
+            # Record initial stages for each project
+            for row in eppm_rows:
+                pid = row["Project number"]
+                if pid not in stage_overrides:
+                    stage_overrides[pid] = row["Active Stage"]
         else:
-            # Complete some projects
-            active_projects = [pid for pid in all_project_ids if pid not in completed_project_ids]
-            if n_proj_completions > 0 and active_projects:
-                newly_completed = rng.sample(active_projects, min(n_proj_completions, len(active_projects)))
-                completed_project_ids.update(newly_completed)
-
-            # Stage changes for some remaining active projects
+            # Advance projects through gate sequence (G0→G1→...→G6→Completed)
+            # ~15-25% of active projects advance 1 gate each cycle
             still_active = [pid for pid in all_project_ids if pid not in completed_project_ids]
-            n_stage_changes = min(int(len(still_active) * 0.08), len(still_active))
-            if n_stage_changes > 0:
-                for pid in rng.sample(still_active, n_stage_changes):
-                    stage_overrides[pid] = rng.choice(["G3", "G5"])
+            n_advances = min(int(len(still_active) * rng.uniform(0.15, 0.25)), len(still_active))
+            if n_advances > 0:
+                for pid in rng.sample(still_active, n_advances):
+                    current = stage_overrides.get(pid, "G0")
+                    if current in GATE_SEQUENCE:
+                        idx = GATE_SEQUENCE.index(current)
+                        # Advance 1 gate (occasionally 2 for faster projects)
+                        advance = 1 if rng.random() < 0.85 else 2
+                        new_idx = min(idx + advance, len(GATE_SEQUENCE) - 1)
+                        new_stage = GATE_SEQUENCE[new_idx]
+                        stage_overrides[pid] = new_stage
+                        if new_stage == "Completed":
+                            completed_project_ids.add(pid)
 
-            # Generate existing projects (with completions and stage changes)
+            # Generate existing projects (with updated stages)
             eppm_rows = generate_eppm_data(
                 active_eppm_people, portfolio_pool, rng,
                 num_projects=len(all_project_ids),
@@ -664,7 +680,7 @@ def generate_all_cycles(rng, max_cycles=15):
                 stage_overrides=stage_overrides,
             )
 
-            # Add new projects
+            # Add new projects (start mostly at G0/G1)
             if n_new_projects > 0:
                 new_project_offset += 500
                 new_rows = generate_eppm_data(
@@ -673,8 +689,10 @@ def generate_all_cycles(rng, max_cycles=15):
                     new_project_start=new_project_offset,
                 )
                 eppm_rows.extend(new_rows)
-                new_ids = [r["Project number"] for r in new_rows]
-                all_project_ids.extend(new_ids)
+                for row in new_rows:
+                    npid = row["Project number"]
+                    all_project_ids.append(npid)
+                    stage_overrides[npid] = row["Active Stage"]
 
         # --- Generate Fuse data using tracked state ---
         fuse_people_list = []

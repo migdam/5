@@ -108,4 +108,4 @@ output:
 file_patterns:
   eppm: "*ePPM*.*xlsx"
   fuse: "*Fuse*.*xlsx"
-  role_changes: "*role_changes*.*csv"
+  role_changes: "*role_changes*.*xlsx"

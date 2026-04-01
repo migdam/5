@@ -50,7 +50,7 @@ def copy_cycle_files(cycle_num, config):
     os.makedirs(input_dir, exist_ok=True)
 
     for f in os.listdir(sim_dir):
-        if f.endswith((".xlsx", ".csv")):
+        if f.endswith(".xlsx"):
             src = os.path.join(sim_dir, f)
             dst = os.path.join(input_dir, f)
             shutil.copy2(src, dst)

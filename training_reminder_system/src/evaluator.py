@@ -234,7 +234,7 @@ def find_role_changed_it_pms(eppm_df, role_changes_df, config):
 
     Args:
         eppm_df: ePPM DataFrame with mapped column names.
-        role_changes_df: DataFrame from role_changes.csv, or None if not provided.
+        role_changes_df: DataFrame from role_changes.xlsx, or None if not provided.
         config: Application configuration.
 
     Returns:

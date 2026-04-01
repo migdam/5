@@ -53,7 +53,7 @@ POSITIONS = [
     "Digital Project Lead", "Transformation Manager",
 ]
 
-# Non-PM roles for the role_changes.csv (people who left IT PM positions)
+# Non-PM roles for the role_changes.xlsx (people who left IT PM positions)
 CHANGED_ROLE_NAMES = [
     "Business Analyst", "Solution Architect", "Data Engineer",
     "Product Owner", "Scrum Master", "DevOps Engineer",
@@ -567,7 +567,7 @@ def generate_all_cycles(rng, max_cycles=30):
 
     # Select people who will be reported as having changed roles via CSV
     # These people stay in the people master with PM positions (Fuse won't detect them)
-    # but they appear in the manually maintained role_changes.csv
+    # but they appear in the manually maintained role_changes.xlsx
     role_change_pool_count = max(4, int(len(overlap_people) * 0.10))
     role_change_pool = rng.sample(overlap_people, role_change_pool_count)
     role_change_pool_ids = {p["person_id"] for p in role_change_pool}
@@ -819,7 +819,7 @@ def main():
 
     total_cycles = len(cycles_data)
 
-    # Generate role_changes.csv per cycle
+    # Generate role_changes.xlsx per cycle
     # Simulates feedback arriving over time: the list grows as more people report changes
     # Cycle 1: no CSV (nobody reported yet)
     # Cycle 2+: gradually add people from role_change_pool
@@ -862,24 +862,18 @@ def main():
         write_excel(eppm_rows, eppm_path, sheet_name="ePPM")
         write_excel(fuse_rows, fuse_path, sheet_name="Fuse")
 
-        # Write role_changes.csv if available for this cycle
+        # Write role_changes.xlsx if available for this cycle
         csv_data = role_change_csvs.get(cycle_num)
         if csv_data:
-            import csv
-            csv_path = os.path.join(cycle_dir, "role_changes.csv")
-            with open(csv_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=[
-                    "it_pm_email", "it_pm_name", "new_role", "reported_date", "notes"
-                ])
-                writer.writeheader()
-                writer.writerows(csv_data)
+            rc_path = os.path.join(cycle_dir, "role_changes.xlsx")
+            write_excel(csv_data, rc_path, sheet_name="Role Changes")
 
     # Copy cycle 1 to data/input for easy first run
     input_dir = os.path.join(base_dir, "data", "input")
     os.makedirs(input_dir, exist_ok=True)
     # Clear existing input files
     for f in os.listdir(input_dir):
-        if f.endswith((".xlsx", ".csv")):
+        if f.endswith(".xlsx"):
             os.remove(os.path.join(input_dir, f))
     shutil.copy2(
         os.path.join(base_dir, "data", "simulation", "cycle_1", "ePPM_export.xlsx"),
@@ -901,7 +895,7 @@ def main():
     print(f"Alias cases: {len(alias_ids)}")
     print(f"Role-change pool (for CSV): {len(role_change_pool)}")
     csv_cycles = [c for c, d in role_change_csvs.items() if d]
-    print(f"Cycles with role_changes.csv: {len(csv_cycles)} (cycles {csv_cycles[:5]}{'...' if len(csv_cycles) > 5 else ''})")
+    print(f"Cycles with role_changes.xlsx: {len(csv_cycles)} (cycles {csv_cycles[:5]}{'...' if len(csv_cycles) > 5 else ''})")
     contractors = sum(1 for p in people if p["employment_type"] == "Contractor")
     print(f"Contractors: {contractors}")
     print(f"Standard: {sum(1 for p in people if p['employment_type'] == 'Standard')}")

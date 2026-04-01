@@ -1,0 +1,29 @@
+Subject: Reminder: Project Management Training Completion Required
+Dear Colleagues,
+
+You are receiving this message because our records indicate that you have outstanding project management training that still needs to be completed.
+
+As IT Project Managers assigned to active projects, completing the required certifications is an important step in ensuring delivery excellence across our portfolio.
+
+The required training courses are:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+  - Certification Test for Managing Projects for Business Success (Advanced)
+
+Please check your training status and complete any outstanding courses at your earliest convenience.
+
+Here is why completing this training matters:
+  - It strengthens your ability to deliver high-quality project outcomes
+  - It improves consistency across our project portfolio
+  - It gives you recognized credentials that reflect your expertise
+  - It supports shared standards and better outcomes for your teams
+
+Below you will find a summary of the outstanding training per person:
+
+{% for person in recipients %}  - {{person.name}}: missing {{person.missing_trainings}}
+{% endfor %}
+We understand that your schedules are busy, and we appreciate your dedication. These courses are designed to be practical and manageable, even alongside your current project commitments.
+
+If you have any questions about the training or need help accessing the learning platform, please do not hesitate to reach out.
+
+Best regards,
+Project Management Office

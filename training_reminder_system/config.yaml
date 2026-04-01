@@ -71,6 +71,8 @@ templates:
   stage_3: "templates/reminder_stage_3.txt"
   default: "templates/reminder_stage_default.txt"
   missing_itpm: "templates/missing_itpm_reminder.txt"
+  group_training: "templates/group_training_reminder.txt"
+  group_missing_itpm: "templates/group_missing_itpm_reminder.txt"
 
 # Matching rules
 matching:
@@ -89,6 +91,7 @@ output:
   generate_per_stage_folders: true
   generate_csv: true
   generate_summary: true
+  generate_group_emails: true  # Generate single group email files with all recipients in To: field
 
 # File identification patterns (glob patterns to find input files)
 file_patterns:

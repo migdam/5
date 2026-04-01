@@ -524,7 +524,7 @@ def write_excel(rows, filepath, sheet_name="Sheet1"):
 # Multi-Cycle Generation
 # ============================================================
 
-def generate_all_cycles(rng, max_cycles=15):
+def generate_all_cycles(rng, max_cycles=30):
     """Generate cycles until ALL PMs are fully certified.
 
     Each cycle:
@@ -582,33 +582,63 @@ def generate_all_cycles(rng, max_cycles=15):
 
     cycles_data = {}
 
-    # Certification progression rates per cycle
-    # These define the PROBABILITY that an uncertified person completes in this cycle
-    cycle_params = [
-        # (fund_completion_chance, adv_completion_chance, new_projects, new_pms, project_completions)
-        (0.20, 0.10, 0, 0, 0),         # Cycle 1: baseline, low rates
-        (0.25, 0.15, 30, 12, 15),       # Cycle 2: some growth
-        (0.30, 0.20, 25, 10, 12),       # Cycle 3: building momentum
-        (0.35, 0.30, 20, 8, 15),        # Cycle 4: strong uptake
-        (0.45, 0.40, 15, 6, 10),        # Cycle 5: accelerating
-        (0.55, 0.50, 12, 5, 12),        # Cycle 6: most completing
-        (0.70, 0.65, 8, 4, 8),          # Cycle 7: nearly there
-        (0.85, 0.80, 5, 3, 5),          # Cycle 8: tail end
-        (0.95, 0.90, 3, 2, 3),          # Cycle 9: cleanup
-        (1.00, 1.00, 0, 0, 2),          # Cycle 10: force complete all
-    ]
+    # --- Weekly cycle timing ---
+    # Each cycle = 1 week
+    # Gate advancement: avg 3 months per gate = ~13 weeks
+    #   -> probability of advancing per project per week ≈ 1/13 ≈ 0.077
+    # Training completion: people typically complete within 2-6 weeks after reminder
+    #   -> per-week completion probability starts low and increases over time
+    # New projects/PMs arrive periodically (every few weeks)
+    GATE_ADVANCE_PROB = 1.0 / 13.0  # ~7.7% chance per project per week
 
     new_project_offset = 0
 
     for cycle_num in range(1, max_cycles + 1):
-        # Get params for this cycle (use last params if beyond defined list)
-        if cycle_num <= len(cycle_params):
-            fund_chance, adv_chance, n_new_projects, n_new_pms, n_proj_completions = cycle_params[cycle_num - 1]
-        else:
-            fund_chance, adv_chance = 1.0, 1.0
-            n_new_projects, n_new_pms, n_proj_completions = 0, 0, 0
+        week = cycle_num
 
-        label = _cycle_label(cycle_num)
+        # Training completion probability increases over weeks
+        # Weeks 1-4: people are just getting started, low completion
+        # Weeks 5-8: moderate uptake
+        # Weeks 9-12: strong uptake
+        # Weeks 13-16: most people done
+        # Weeks 17+: stragglers complete, force to 100%
+        if week <= 4:
+            fund_chance = 0.05 + week * 0.02     # 7-13%
+            adv_chance = 0.02 + week * 0.01      # 3-6%
+        elif week <= 8:
+            fund_chance = 0.12 + (week - 4) * 0.03  # 15-24%
+            adv_chance = 0.08 + (week - 4) * 0.03   # 11-20%
+        elif week <= 12:
+            fund_chance = 0.25 + (week - 8) * 0.05  # 30-45%
+            adv_chance = 0.20 + (week - 8) * 0.05   # 25-40%
+        elif week <= 16:
+            fund_chance = 0.50 + (week - 12) * 0.10  # 60-90%
+            adv_chance = 0.45 + (week - 12) * 0.10   # 55-85%
+        elif week <= 20:
+            fund_chance = 0.90 + (week - 16) * 0.025
+            adv_chance = 0.85 + (week - 16) * 0.03
+        else:
+            fund_chance = 1.0
+            adv_chance = 1.0
+
+        fund_chance = min(fund_chance, 1.0)
+        adv_chance = min(adv_chance, 1.0)
+
+        # New projects arrive every ~3-4 weeks, new PMs with them
+        n_new_projects = 0
+        n_new_pms = 0
+        if week in (3, 4):
+            n_new_projects, n_new_pms = 8, 4
+        elif week in (7, 8):
+            n_new_projects, n_new_pms = 6, 3
+        elif week in (11, 12):
+            n_new_projects, n_new_pms = 5, 3
+        elif week in (15, 16):
+            n_new_projects, n_new_pms = 4, 2
+        elif week == 19:
+            n_new_projects, n_new_pms = 3, 2
+
+        label = f"week {week}"
         print(f"Generating Cycle {cycle_num} ({label})...")
 
         # --- Add new PMs from reserve ---
@@ -656,11 +686,10 @@ def generate_all_cycles(rng, max_cycles=15):
                     stage_overrides[pid] = row["Active Stage"]
         else:
             # Advance projects through gate sequence (G0→G1→...→G6→Completed)
-            # ~15-25% of active projects advance 1 gate each cycle
+            # Each project has ~7.7% chance of advancing 1 gate per week (avg 3 months/gate)
             still_active = [pid for pid in all_project_ids if pid not in completed_project_ids]
-            n_advances = min(int(len(still_active) * rng.uniform(0.15, 0.25)), len(still_active))
-            if n_advances > 0:
-                for pid in rng.sample(still_active, n_advances):
+            for pid in still_active:
+                if rng.random() < GATE_ADVANCE_PROB:
                     current = stage_overrides.get(pid, "G0")
                     if current in GATE_SEQUENCE:
                         idx = GATE_SEQUENCE.index(current)
@@ -751,26 +780,14 @@ def generate_all_cycles(rng, max_cycles=15):
 
 
 def _cycle_label(cycle_num):
-    """Return a descriptive label for each cycle."""
-    labels = {
-        1: "baseline",
-        2: "growth + new PMs",
-        3: "building momentum + new PMs",
-        4: "strong uptake + new PMs",
-        5: "accelerating + new PMs",
-        6: "most completing",
-        7: "nearly there",
-        8: "tail end",
-        9: "cleanup",
-        10: "final push",
-    }
-    return labels.get(cycle_num, f"extended cycle {cycle_num}")
+    """Return a descriptive label for each weekly cycle."""
+    return f"week {cycle_num}"
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate synthetic test data")
     parser.add_argument("--seed", type=int, default=SEED, help="Random seed")
-    parser.add_argument("--max-cycles", type=int, default=15, help="Max cycles to generate")
+    parser.add_argument("--max-cycles", type=int, default=30, help="Max weekly cycles to generate")
     args = parser.parse_args()
 
     rng = random.Random(args.seed)

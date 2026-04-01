@@ -1,0 +1,25 @@
+Subject: Action Needed: IT Project Manager Allocation Update Required in ePPM
+Dear {{pm_name}},
+
+We are reaching out because our records indicate that the following project(s) under your management have an IT Project Manager assigned in ePPM who appears to have changed their role within the organization:
+
+{% for project in projects %}  - {{project.project_name}} ({{project.project_id}})
+    Currently assigned IT PM: {{project.it_pm_name}} ({{project.it_pm_email}})
+    Current position: {{project.current_position}}
+{% endfor %}
+Since the assigned IT Project Manager(s) may no longer be working in a project management capacity, the IT PM allocation in ePPM likely needs to be updated to reflect the correct person.
+
+Keeping ePPM allocations current is important because:
+  - It ensures the right person is accountable for IT delivery on the project
+  - It allows us to accurately track training compliance and certification
+  - It supports correct reporting and portfolio oversight
+  - It prevents reminders being sent to people who are no longer in the role
+
+Could you please review and update the IT Project Manager field in ePPM for the project(s) listed above?
+
+If you need help identifying who should be assigned, please reach out to your IT Portfolio Manager or the Project Management Office.
+
+Thank you for your attention to this matter.
+
+Best regards,
+Project Management Office

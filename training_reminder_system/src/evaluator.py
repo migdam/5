@@ -222,3 +222,110 @@ def find_projects_missing_it_pm(eppm_df, config):
     )
 
     return result
+
+
+def find_role_changed_it_pms(eppm_df, training_df, config):
+    """Find IT PMs in ePPM whose current position in Fuse indicates a role change.
+
+    If someone is listed as IT PM on an active project but their Fuse position
+    no longer matches a valid IT PM role, they likely changed roles and the
+    ePPM allocation needs updating.
+
+    Args:
+        eppm_df: ePPM DataFrame with mapped column names.
+        training_df: Fuse DataFrame with mapped column names.
+        config: Application configuration.
+
+    Returns:
+        List of dicts grouped by PM responsible, with affected projects and
+        the IT PM who changed roles.
+    """
+    from src.normalizer import normalize_email
+
+    active_statuses = [s.lower() for s in config["status_mapping"]["project_active_statuses"]]
+    valid_positions = [p.lower() for p in config.get("valid_itpm_positions", [
+        "IT Project Manager", "Project Manager", "Senior Project Manager",
+        "Program Manager", "IT Manager", "Digital Project Lead",
+    ])]
+
+    # Build position lookup from Fuse: email -> latest position
+    fuse_positions = {}
+    for _, row in training_df.iterrows():
+        email = row.get("email")
+        position = row.get("position")
+        if email and str(email) not in ("", "None", "nan"):
+            norm_email = normalize_email(str(email))
+            if position and str(position) not in ("", "None", "nan"):
+                fuse_positions[norm_email] = str(position)
+
+    role_changed = []
+
+    for _, row in eppm_df.iterrows():
+        project_status = str(row.get("project_status", "")).lower().strip()
+        if project_status not in active_statuses:
+            continue
+
+        it_pm_name = row.get("it_project_manager")
+        it_pm_email = row.get("it_project_manager_email")
+        if not it_pm_name or str(it_pm_name) in ("", "None", "nan"):
+            continue
+        if not it_pm_email or str(it_pm_email) in ("", "None", "nan"):
+            continue
+
+        norm_itpm_email = normalize_email(str(it_pm_email))
+        current_position = fuse_positions.get(norm_itpm_email)
+
+        if not current_position:
+            continue  # Can't determine position — skip
+
+        if current_position.lower() in valid_positions:
+            continue  # Position is still valid
+
+        # Role mismatch detected
+        pm_name = row.get("project_manager")
+        pm_email = row.get("project_manager_email")
+        owner_name = row.get("project_owner")
+        owner_email = row.get("project_owner_email")
+
+        role_changed.append({
+            "project_name": str(row.get("project_name", "")),
+            "project_id": str(row.get("project_number", "")),
+            "it_pm_name": str(it_pm_name),
+            "it_pm_email": str(it_pm_email),
+            "current_position": current_position,
+            "pm_name": str(pm_name) if pm_name and str(pm_name) not in ("", "None", "nan") else None,
+            "pm_email": str(pm_email) if pm_email and str(pm_email) not in ("", "None", "nan") else None,
+            "owner_name": str(owner_name) if owner_name and str(owner_name) not in ("", "None", "nan") else None,
+            "owner_email": str(owner_email) if owner_email and str(owner_email) not in ("", "None", "nan") else None,
+        })
+
+    # Group by PM email (the PM is who should update ePPM)
+    pm_groups = {}
+    for item in role_changed:
+        pm_email = item["pm_email"]
+        if not pm_email:
+            continue
+        key = pm_email.lower().strip()
+        if key not in pm_groups:
+            pm_groups[key] = {
+                "pm_name": item["pm_name"],
+                "pm_email": item["pm_email"],
+                "projects": [],
+            }
+        pm_groups[key]["projects"].append({
+            "project_name": item["project_name"],
+            "project_id": item["project_id"],
+            "it_pm_name": item["it_pm_name"],
+            "it_pm_email": item["it_pm_email"],
+            "current_position": item["current_position"],
+            "owner_name": item["owner_name"],
+            "owner_email": item["owner_email"],
+        })
+
+    result = list(pm_groups.values())
+    total = sum(len(g["projects"]) for g in result)
+    logger.info(
+        "Role-changed IT PMs: %d projects with IT PM who changed role, affecting %d PMs",
+        total, len(result),
+    )
+    return result

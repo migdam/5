@@ -8,7 +8,8 @@ logger = logging.getLogger(__name__)
 
 
 def generate_outputs(reminders, summary_data, config, cycle_id,
-                     missing_itpm_reminders=None, escalation_reminders=None):
+                     missing_itpm_reminders=None, escalation_reminders=None,
+                     role_changed_reminders=None):
     """Generate all output files for a processing cycle.
 
     Args:
@@ -18,6 +19,7 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
         cycle_id: Current cycle ID.
         missing_itpm_reminders: List of missing IT PM reminder dicts (optional).
         escalation_reminders: List of escalation-to-owner reminder dicts (optional).
+        role_changed_reminders: List of role-changed IT PM reminders (optional).
 
     Returns:
         Path to the output folder created.
@@ -26,6 +28,8 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
         missing_itpm_reminders = []
     if escalation_reminders is None:
         escalation_reminders = []
+    if role_changed_reminders is None:
+        role_changed_reminders = []
 
     output_base = config["paths"]["output_folder"]
     timestamp = get_timestamp()
@@ -57,6 +61,10 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
     # 5b. Escalation reminders to Project Owners
     if escalation_reminders:
         _write_escalations(output_dir, escalation_reminders)
+
+    # 5c. Role-changed IT PM reminders
+    if role_changed_reminders:
+        _write_role_changed(output_dir, role_changed_reminders)
 
     # 6. Group emails (single email with all recipients in To: field)
     if output_opts.get("generate_group_emails", False):
@@ -228,6 +236,51 @@ def _write_escalations(output_dir, reminders):
     logger.info(
         "Escalation folder: %d escalation files + CSV", len(reminders)
     )
+
+
+def _write_role_changed(output_dir, reminders):
+    """Write role-changed IT PM reminders."""
+    rc_dir = os.path.join(output_dir, "role_changed_itpm")
+    os.makedirs(rc_dir, exist_ok=True)
+
+    for r in reminders:
+        safe_name = _safe_filename(r["name"])
+        filename = f"{safe_name}_role_changed_itpm.txt"
+        filepath = os.path.join(rc_dir, filename)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("=" * 60 + "\n")
+            f.write("ROLE-CHANGED IT PM ALERT - READY TO SEND\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(f"To:      {r['recipient_email']}\n")
+            f.write(f"Subject: {r['subject']}\n")
+            f.write(f"Type:    IT PM Role Change Alert\n")
+            f.write(f"Affected projects:\n")
+            for p in r.get("projects", []):
+                f.write(f"  - {p['project_name']} ({p['project_id']})\n")
+                f.write(f"    IT PM: {p['it_pm_name']} -> now: {p['current_position']}\n")
+            f.write("\n" + "-" * 60 + "\n")
+            f.write("EMAIL BODY (copy below this line):\n")
+            f.write("-" * 60 + "\n\n")
+            f.write(r["body"])
+            f.write("\n")
+
+    # CSV
+    csv_path = os.path.join(rc_dir, "role_changed_itpm_reminders.csv")
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "recipient_email", "pm_name", "num_projects", "details", "subject",
+        ])
+        writer.writeheader()
+        for r in reminders:
+            writer.writerow({
+                "recipient_email": r["recipient_email"],
+                "pm_name": r["name"],
+                "num_projects": len(r.get("projects", [])),
+                "details": r.get("project_list", ""),
+                "subject": r["subject"],
+            })
+
+    logger.info("Role-changed IT PM folder: %d files + CSV", len(reminders))
 
 
 def _write_group_emails(output_dir, training_reminders, itpm_reminders, config):

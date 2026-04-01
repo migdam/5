@@ -18,8 +18,8 @@ from src.repository import Database
 from src.file_loader import load_eppm, load_training
 from src.normalizer import extract_unique_pms, normalize_name, normalize_email
 from src.matcher import match_people
-from src.evaluator import evaluate_training, get_eligible_pms, find_projects_missing_it_pm
-from src.communication import generate_reminders, generate_missing_itpm_reminders
+from src.evaluator import evaluate_training, get_eligible_pms, find_projects_missing_it_pm, find_role_changed_it_pms
+from src.communication import generate_reminders, generate_missing_itpm_reminders, generate_role_changed_reminders
 from src.reporting import generate_outputs
 from src.archiver import archive_files
 
@@ -136,9 +136,17 @@ def run_cycle(config_path="config.yaml"):
             missing_itpm_list, db, cycle_id, config
         )
 
+        # --- Step 6c: Find IT PMs who changed roles ---
+        logger.info("Step 6c: Checking for IT PMs who changed roles")
+        role_changed_list = find_role_changed_it_pms(eppm_df, training_df, config)
+        role_changed_reminders = generate_role_changed_reminders(
+            role_changed_list, db, cycle_id, config
+        )
+
         # --- Step 7: Generate output files ---
         logger.info("Step 7: Generating output files")
         missing_itpm_project_count = sum(len(m["projects"]) for m in missing_itpm_list)
+        role_changed_project_count = sum(len(g["projects"]) for g in role_changed_list)
         summary_data = {
             "cycle_id": cycle_id,
             "total_pms_in_eppm": len(unique_pms),
@@ -154,12 +162,15 @@ def run_cycle(config_path="config.yaml"):
             "projects_missing_it_pm": missing_itpm_project_count,
             "missing_itpm_reminders_to_pm": len(missing_itpm_reminders),
             "missing_itpm_escalations_to_owner": len(escalation_reminders),
+            "role_changed_itpm_projects": role_changed_project_count,
+            "role_changed_itpm_reminders": len(role_changed_reminders),
         }
 
         output_dir = generate_outputs(
             reminders, summary_data, config, cycle_id,
             missing_itpm_reminders=missing_itpm_reminders,
             escalation_reminders=escalation_reminders,
+            role_changed_reminders=role_changed_reminders,
         )
 
         # --- Step 8: Archive input files ---
@@ -170,7 +181,8 @@ def run_cycle(config_path="config.yaml"):
         notes = (
             f"Generated {len(reminders)} training reminders, "
             f"{len(missing_itpm_reminders)} IT PM reminders to PMs, "
-            f"{len(escalation_reminders)} escalations to owners. Output: {output_dir}"
+            f"{len(escalation_reminders)} escalations to owners, "
+            f"{len(role_changed_reminders)} role-change alerts. Output: {output_dir}"
         )
         db.complete_cycle(cycle_id, "completed", notes)
 

@@ -346,3 +346,67 @@ def generate_missing_itpm_reminders(missing_itpm_list, db, cycle_id, config):
     )
 
     return pm_reminders, escalation_reminders
+
+
+def generate_role_changed_reminders(role_changed_list, db, cycle_id, config):
+    """Generate reminders for PMs whose projects have an IT PM who changed roles.
+
+    Args:
+        role_changed_list: List from find_role_changed_it_pms().
+        db: Database instance.
+        cycle_id: Current cycle ID.
+        config: Application configuration.
+
+    Returns:
+        List of reminder dicts.
+    """
+    from src.normalizer import normalize_name
+
+    template_path = config["templates"].get("role_changed_itpm")
+    reminders = []
+
+    for item in role_changed_list:
+        pm_name = item["pm_name"]
+        pm_email = item["pm_email"]
+        projects = item["projects"]
+
+        if template_path:
+            template_content = load_template(template_path)
+            lines = template_content.strip().split("\n", 1)
+            subject_tpl = lines[0].replace("Subject: ", "").strip()
+            body_tpl = lines[1].strip() if len(lines) > 1 else ""
+            subject = Template(subject_tpl).render(pm_name=pm_name, projects=projects)
+            body = Template(body_tpl).render(pm_name=pm_name, projects=projects)
+        else:
+            subject = "Action Needed: IT PM Allocation Update Required in ePPM"
+            body = f"Dear {pm_name},\n\nSome IT PMs on your projects have changed roles.\n"
+
+        project_list_str = ", ".join(
+            f"{p['project_name']} ({p['project_id']}) - {p['it_pm_name']} now {p['current_position']}"
+            for p in projects
+        )
+
+        reminder = {
+            "recipient_email": pm_email,
+            "subject": subject,
+            "body": body,
+            "stage": 0,
+            "name": pm_name,
+            "missing_trainings": [],
+            "reminder_type": "role_changed_itpm",
+            "projects": projects,
+            "project_list": project_list_str,
+        }
+
+        norm_name = normalize_name(pm_name)
+        pm_id = db.upsert_project_manager(pm_name, pm_email, norm_name)
+        db.insert_communication(cycle_id, pm_id, -2, subject, body, status="prepared")
+
+        reminders.append(reminder)
+        logger.debug(
+            "Role-changed IT PM reminder for %s <%s> (%d projects)",
+            pm_name, pm_email, len(projects),
+        )
+
+    logger.info("Generated %d role-changed IT PM reminders", len(reminders))
+    return reminders

@@ -72,6 +72,7 @@ templates:
   default: "templates/reminder_stage_default.txt"
   missing_itpm: "templates/missing_itpm_reminder.txt"
   missing_itpm_escalation: "templates/missing_itpm_escalation.txt"
+  role_changed_itpm: "templates/role_changed_itpm_reminder.txt"
   group_training: "templates/group_training_reminder.txt"
   group_missing_itpm: "templates/group_missing_itpm_reminder.txt"
 
@@ -81,6 +82,19 @@ matching:
   match_by_email: true
   match_by_exact_name: true
   match_by_normalized_name: true
+
+# Valid positions for IT Project Managers (used to detect role changes)
+# If a person listed as IT PM in ePPM has a Fuse position NOT in this list,
+# they are flagged as having changed roles.
+valid_itpm_positions:
+  - "IT Project Manager"
+  - "Project Manager"
+  - "Senior Project Manager"
+  - "Program Manager"
+  - "IT Manager"
+  - "Digital Project Lead"
+  - "Transformation Manager"
+  - "Portfolio Manager"
 
 # Communication options
 communication:

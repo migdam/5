@@ -53,6 +53,13 @@ POSITIONS = [
     "Digital Project Lead", "Transformation Manager",
 ]
 
+# Non-PM positions for people who changed roles
+CHANGED_ROLE_POSITIONS = [
+    "Business Analyst", "Solution Architect", "Data Engineer",
+    "Product Owner", "Scrum Master", "DevOps Engineer",
+    "Quality Assurance Lead", "Technical Consultant",
+]
+
 LEADING_FUNCTIONS = [
     "Operations", "Finance", "IT", "Marketing", "Supply Chain",
     "R&D", "Quality", "Commercial", "HR", "Legal",
@@ -558,6 +565,19 @@ def generate_all_cycles(rng, max_cycles=30):
     overlap_people = rng.sample(initial_eppm_pool, overlap_count)
     overlap_ids = {p["person_id"] for p in overlap_people}
 
+    # Mark ~8% of overlap people as having changed roles (non-PM position in Fuse)
+    # These people are still listed as IT PM in ePPM but their Fuse position
+    # will show a non-PM role, triggering the role-change detection
+    role_changed_count = max(2, int(len(overlap_people) * 0.08))
+    role_changed_people = rng.sample(overlap_people, role_changed_count)
+    for p in role_changed_people:
+        p["position"] = rng.choice(CHANGED_ROLE_POSITIONS)
+    role_changed_ids = {p["person_id"] for p in role_changed_people}
+    logger.info(
+        "%d people marked as role-changed (non-PM position in Fuse)",
+        len(role_changed_ids),
+    ) if False else None  # logged at generation time via print below
+
     # Extra Fuse-only people (stable background learners)
     fuse_only_candidates = [p for p in people if p["person_id"] not in overlap_ids
                             and p not in initial_eppm_pool]
@@ -776,7 +796,7 @@ def generate_all_cycles(rng, max_cycles=30):
             print(f"\n  All matchable active PMs are fully certified! Stopping at cycle {cycle_num}.")
             break
 
-    return cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle
+    return cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_changed_ids
 
 
 def _cycle_label(cycle_num):
@@ -792,7 +812,7 @@ def main():
 
     rng = random.Random(args.seed)
 
-    cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle = generate_all_cycles(
+    cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_changed_ids = generate_all_cycles(
         rng, max_cycles=args.max_cycles
     )
 
@@ -838,6 +858,7 @@ def main():
     print(f"People master: {len(people)}")
     print(f"Overlap people (in both ePPM and Fuse): {len(overlap_ids)}")
     print(f"Alias cases: {len(alias_ids)}")
+    print(f"Role-changed IT PMs (non-PM position): {len(role_changed_ids)}")
     contractors = sum(1 for p in people if p["employment_type"] == "Contractor")
     print(f"Contractors: {contractors}")
     print(f"Standard: {sum(1 for p in people if p['employment_type'] == 'Standard')}")

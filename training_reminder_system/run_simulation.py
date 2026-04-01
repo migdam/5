@@ -247,8 +247,8 @@ def main():
     # Print compact progression table
     if all_summaries:
         print("\n--- Cycle Progression Table ---")
-        print(f"{'Cycle':<7} {'PMs':<7} {'Match':<7} {'Done':<7} {'Elig':<7} {'TrRem':<7} {'S1':<5} {'S2':<5} {'S3+':<5} {'ITPM':<6} {'Escal':<6}")
-        print("-" * 78)
+        print(f"{'Cycle':<7} {'PMs':<7} {'Match':<7} {'Done':<7} {'Elig':<7} {'TrRem':<7} {'S1':<5} {'S2':<5} {'S3+':<5} {'ITPM':<6} {'Escal':<6} {'RoleChg':<8}")
+        print("-" * 86)
         for s in all_summaries:
             if s:
                 cid = s.get("cycle_id", "?")
@@ -267,10 +267,11 @@ def main():
                 train_rem = s.get('training_reminders_generated', s.get('reminders_generated', ''))
                 miss_itpm = s.get('missing_itpm_reminders_to_pm', s.get('missing_itpm_reminders_generated', ''))
                 escalations = s.get('missing_itpm_escalations_to_owner', '')
+                role_chg = s.get('role_changed_itpm_reminders', '')
                 print(f"{cid:<7} {s.get('total_pms_in_eppm',''):<7} "
                       f"{s.get('matched_pms',''):<7} {s.get('pms_training_complete',''):<7} "
                       f"{s.get('pms_eligible_for_reminder',''):<7} {train_rem:<7} "
-                      f"{s1:<5} {s2:<5} {s3p:<5} {miss_itpm:<6} {escalations:<6}")
+                      f"{s1:<5} {s2:<5} {s3p:<5} {miss_itpm:<6} {escalations:<6} {role_chg:<8}")
 
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")

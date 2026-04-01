@@ -196,3 +196,32 @@ def load_excluded_projects(config):
     df = load_excel(filepath, mapping)
     logger.info("Excluded projects data: %d entries loaded", len(df))
     return df, filepath
+
+
+def load_identity_aliases(config):
+    """Load the manually maintained identity aliases Excel file.
+
+    This file maps alternate identities (maiden names, old emails, cross-system
+    email differences) to the canonical identity. Used to resolve matches that
+    automated matching cannot handle.
+
+    Format:
+        canonical_email | canonical_name | alias_email | alias_name | reason
+        anna.nowak@...  | Anna Nowak     | anna.kowalska@... | Anna Kowalska | Maiden name
+        john@corp.ex    | John Smith     | john@brand.ex     |               | Domain change
+
+    Returns:
+        (DataFrame, filepath) if file found, or (None, None) if not found.
+    """
+    input_folder = config["paths"]["input_folder"]
+    pattern = config.get("file_patterns", {}).get("identity_aliases", "*identity_aliases*.*xlsx")
+    try:
+        filepath = find_file(input_folder, pattern)
+    except FileNotFoundError:
+        logger.info("No identity_aliases file found in %s", input_folder)
+        return None, None
+
+    mapping = config.get("column_mapping", {}).get("identity_aliases", {})
+    df = load_excel(filepath, mapping)
+    logger.info("Identity aliases data: %d entries loaded", len(df))
+    return df, filepath

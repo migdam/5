@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.config_loader import load_config
 from src.utils import setup_logging
 from src.repository import Database
-from src.file_loader import load_eppm, load_training, load_role_changes, load_excluded_projects, InputValidationError
+from src.file_loader import load_eppm, load_training, load_role_changes, load_excluded_projects, load_identity_aliases, InputValidationError
 from src.normalizer import extract_unique_pms, normalize_name, normalize_email
 from src.matcher import match_people
 from src.evaluator import evaluate_training, get_eligible_pms, find_projects_missing_it_pm, find_role_changed_it_pms, filter_ghost_projects, extract_pm_compliance_issues
@@ -56,6 +56,11 @@ def run_cycle(config_path="config.yaml"):
         excluded_projects_df, excluded_projects_path = load_excluded_projects(config)
         if excluded_projects_path:
             input_files.append(("excluded_projects", excluded_projects_path))
+
+        # --- Step 1b2: Load optional identity aliases ---
+        aliases_df, aliases_path = load_identity_aliases(config)
+        if aliases_path:
+            input_files.append(("identity_aliases", aliases_path))
 
         # --- Step 1c: Filter out ghost projects ---
         logger.info("Step 1c: Filtering ghost projects (completed, cancelled, excluded)")
@@ -108,7 +113,7 @@ def run_cycle(config_path="config.yaml"):
         # --- Step 3: Match PMs against training records ---
         logger.info("Step 3: Matching PMs against training records")
         matched_pms, unmatched_pms, unmatched_training = match_people(
-            unique_pms, training_df, config
+            unique_pms, training_df, config, aliases_df=aliases_df
         )
 
         # Log unmatched records as data quality issues

@@ -43,6 +43,14 @@ column_mapping:
     reason: "reason"
     reported_date: "reported_date"
 
+  # Identity aliases (maiden names, email changes, cross-system mismatches)
+  identity_aliases:
+    canonical_email: "canonical_email"
+    canonical_name: "canonical_name"
+    alias_email: "alias_email"
+    alias_name: "alias_name"
+    reason: "reason"
+
   # Role changes file (manually maintained)
   # Updated by users based on feedback when IT PMs change roles
   role_changes:
@@ -153,3 +161,4 @@ file_patterns:
   fuse: "*Fuse*.*xlsx"
   role_changes: "*role_changes*.*xlsx"
   excluded_projects: "*excluded_projects*.*xlsx"
+  identity_aliases: "*identity_aliases*.*xlsx"

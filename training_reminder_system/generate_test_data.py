@@ -927,6 +927,57 @@ def main():
         else:
             excluded_projects_per_cycle[cycle_num] = None
 
+    # Build identity aliases data
+    # These resolve matching issues: maiden names, email domain changes
+    MAIDEN_NAMES = ["Kowalska", "Nowak", "Wisniewska", "Kaminska", "Lewandowska",
+                    "Zielinska", "Szymanska", "Wojcik", "Piotrowska", "Mazur"]
+    identity_alias_rows = []
+
+    # 1. Email alias cases (existing alias people — different domain in Fuse vs ePPM)
+    alias_people_in_overlap = [p for p in people if p["email_aliases"] and p["person_id"] in overlap_ids]
+    for p in alias_people_in_overlap[:5]:
+        identity_alias_rows.append({
+            "canonical_email": p["email_primary"],
+            "canonical_name": p["full_name"],
+            "alias_email": p["email_aliases"][0],
+            "alias_name": "",
+            "reason": "Domain change / cross-system email",
+        })
+
+    # 2. Maiden name cases — pick some women from overlap, give them a different last name in Fuse
+    women_in_overlap = [p for p in people if p["person_id"] in overlap_ids and p["gender"] == "Female"]
+    maiden_candidates = rng.sample(women_in_overlap, min(4, len(women_in_overlap)))
+    for i, p in enumerate(maiden_candidates):
+        maiden_last = MAIDEN_NAMES[i % len(MAIDEN_NAMES)]
+        maiden_full = f"{p['first_name']} {maiden_last}"
+        maiden_local = f"{p['first_name'].lower()}.{maiden_last.lower()}"
+        maiden_email = f"{maiden_local}@{DOMAINS['primary']}"
+
+        # Change the person's name/email in Fuse data for all cycles
+        # (simulate: ePPM has married name, Fuse has maiden name)
+        for cycle_num in cycles_data:
+            eppm_rows, fuse_rows = cycles_data[cycle_num]
+            for row in fuse_rows:
+                if row.get("Email") == p["email_primary"] or row.get("Email") in p.get("email_aliases", []):
+                    row["Full Name"] = maiden_full
+                    row["Email"] = maiden_email
+
+        identity_alias_rows.append({
+            "canonical_email": p["email_primary"],
+            "canonical_name": p["full_name"],
+            "alias_email": maiden_email,
+            "alias_name": maiden_full,
+            "reason": f"Maiden name (panieńskie) — married name in ePPM",
+        })
+
+    # Identity aliases available from cycle 2+ (simulates: admin noticed mismatches and built the list)
+    identity_aliases_per_cycle = {}
+    for cycle_num in sorted(cycles_data.keys()):
+        if cycle_num >= 2:
+            identity_aliases_per_cycle[cycle_num] = identity_alias_rows
+        else:
+            identity_aliases_per_cycle[cycle_num] = None
+
     for cycle_num, (eppm_rows, fuse_rows) in sorted(cycles_data.items()):
         cycle_dir = os.path.join(base_dir, "data", "simulation", f"cycle_{cycle_num}")
         os.makedirs(cycle_dir, exist_ok=True)
@@ -942,6 +993,12 @@ def main():
         if csv_data:
             rc_path = os.path.join(cycle_dir, "role_changes.xlsx")
             write_excel(csv_data, rc_path, sheet_name="Role Changes")
+
+        # Write identity_aliases.xlsx if available for this cycle
+        alias_data = identity_aliases_per_cycle.get(cycle_num)
+        if alias_data:
+            alias_path = os.path.join(cycle_dir, "identity_aliases.xlsx")
+            write_excel(alias_data, alias_path, sheet_name="Identity Aliases")
 
         # Write excluded_projects.xlsx if available for this cycle
         excl_data = excluded_projects_per_cycle.get(cycle_num)
@@ -978,6 +1035,7 @@ def main():
     print(f"Ghost/cancelled projects: {len(cancelled_project_ids)}")
     csv_cycles = [c for c, d in role_change_csvs.items() if d]
     print(f"Cycles with role_changes.xlsx: {len(csv_cycles)} (cycles {csv_cycles[:5]}{'...' if len(csv_cycles) > 5 else ''})")
+    print(f"Identity aliases: {len(identity_alias_rows)} ({len(maiden_candidates)} maiden names, {len(alias_people_in_overlap[:5])} email aliases)")
     contractors = sum(1 for p in people if p["employment_type"] == "Contractor")
     print(f"Contractors: {contractors}")
     print(f"Standard: {sum(1 for p in people if p['employment_type'] == 'Standard')}")

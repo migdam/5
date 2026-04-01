@@ -5,9 +5,44 @@ from src.normalizer import normalize_name, normalize_email
 logger = logging.getLogger(__name__)
 
 
-def match_people(unique_pms, training_df, config):
-    """Match PMs from ePPM against training records from Fuse using three-pass matching.
+def _build_alias_lookups(aliases_df):
+    """Build lookup dicts from the identity aliases DataFrame.
 
+    Returns:
+        (email_to_canonical, name_to_canonical)
+        email_to_canonical: maps alias_email -> canonical_email
+        name_to_canonical: maps alias_name -> canonical_name
+    """
+    email_map = {}  # alias_email -> canonical_email
+    name_map = {}   # normalized alias_name -> canonical_name
+
+    if aliases_df is None or aliases_df.empty:
+        return email_map, name_map
+
+    for _, row in aliases_df.iterrows():
+        canon_email = row.get("canonical_email")
+        canon_name = row.get("canonical_name")
+        alias_email = row.get("alias_email")
+        alias_name = row.get("alias_name")
+
+        if alias_email and str(alias_email) not in ("", "None", "nan"):
+            norm_alias = normalize_email(str(alias_email))
+            if canon_email and str(canon_email) not in ("", "None", "nan"):
+                email_map[norm_alias] = normalize_email(str(canon_email))
+
+        if alias_name and str(alias_name) not in ("", "None", "nan"):
+            norm_alias = normalize_name(str(alias_name))
+            if canon_name and str(canon_name) not in ("", "None", "nan"):
+                name_map[norm_alias] = normalize_name(str(canon_name))
+
+    logger.info("Alias lookups built: %d email aliases, %d name aliases", len(email_map), len(name_map))
+    return email_map, name_map
+
+
+def match_people(unique_pms, training_df, config, aliases_df=None):
+    """Match PMs from ePPM against training records from Fuse.
+
+    Pass 0: Resolve identity aliases (maiden names, email changes)
     Pass 1: Exact email match (normalized)
     Pass 2: Exact full name match
     Pass 3: Normalized name match
@@ -16,11 +51,15 @@ def match_people(unique_pms, training_df, config):
         unique_pms: DataFrame of unique PM identities with normalized_name, normalized_email.
         training_df: DataFrame of Fuse training data with full_name, email columns.
         config: Application configuration.
+        aliases_df: Optional DataFrame of identity aliases for resolving mismatches.
 
     Returns:
         (matched_pms, unmatched_pms, unmatched_training)
         matched_pms: list of dicts with PM info + training records
     """
+    # --- Pass 0: Build alias lookups and resolve ---
+    email_aliases, name_aliases = _build_alias_lookups(aliases_df)
+
     # Prepare training data with normalized fields
     training = training_df.copy()
     training["normalized_email"] = training["email"].apply(
@@ -30,22 +69,40 @@ def match_people(unique_pms, training_df, config):
         lambda x: normalize_name(x) if x and str(x) not in ("", "None", "nan") else ""
     )
 
+    # Apply alias resolution to training data: if a training email/name is an alias,
+    # add the canonical version so it can match against ePPM
+    alias_resolved = 0
+    if email_aliases or name_aliases:
+        training["resolved_email"] = training["normalized_email"].apply(
+            lambda e: email_aliases.get(e, e)
+        )
+        training["resolved_name"] = training["normalized_name"].apply(
+            lambda n: name_aliases.get(n, n)
+        )
+        alias_resolved = int((training["resolved_email"] != training["normalized_email"]).sum() +
+                             (training["resolved_name"] != training["normalized_name"]).sum())
+        if alias_resolved > 0:
+            logger.info("Pass 0 (aliases): %d training records resolved via aliases", alias_resolved)
+    else:
+        training["resolved_email"] = training["normalized_email"]
+        training["resolved_name"] = training["normalized_name"]
+
     # Build lookup structures from training data
-    # Group training records by person (email or name)
+    # Use resolved (alias-corrected) email/name for matching
     training_by_email = {}
     training_by_name = {}
     training_by_norm_name = {}
 
     for idx, row in training.iterrows():
-        email = row["normalized_email"]
-        name = row.get("full_name", "")
-        norm_name = row["normalized_name"]
-
-        if email:
+        # Index by both original and resolved email/name
+        for email in set(filter(None, [row["normalized_email"], row["resolved_email"]])):
             training_by_email.setdefault(email, []).append(idx)
+
+        name = row.get("full_name", "")
         if name:
             training_by_name.setdefault(str(name).strip(), []).append(idx)
-        if norm_name:
+
+        for norm_name in set(filter(None, [row["normalized_name"], row["resolved_name"]])):
             training_by_norm_name.setdefault(norm_name, []).append(idx)
 
     matched_pms = []

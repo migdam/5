@@ -1,7 +1,10 @@
-Subject: Reminder (Stage {{stage}}): Your Project Management Training Is Still Outstanding
+Subject: Follow-up Reminder: Your Project Management Training Is Still Outstanding
 Dear {{name}},
 
-This is a continued reminder regarding your outstanding project management training.
+This is a follow-up reminder regarding your outstanding project management training.
+{% if just_completed_fundamentals %}
+First of all — congratulations on completing the Fundamentals certification! That is a great achievement and shows your commitment to professional development. You are now one step away from being fully certified.
+{% endif %}
 {% if missing_both %}
 The following courses remain to be completed:
   - Managing Projects for Business Success - Fundamentals - Certification Test

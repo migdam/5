@@ -37,7 +37,8 @@ def determine_reminder_stage(pm_id, db):
     return next_stage
 
 
-def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_trainings=None, compliance_issues=None):
+def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_trainings=None,
+                    compliance_issues=None, just_completed_fundamentals=False):
     """Render a reminder email using the appropriate stage template.
 
     Passes structured training gap info to templates so they can
@@ -95,6 +96,7 @@ def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_
         "has_nice_to_have": len(nice_to_have_trainings) > 0,
         "compliance_issues": unique_compliance,
         "has_compliance_issues": len(unique_compliance) > 0,
+        "just_completed_fundamentals": just_completed_fundamentals,
     }
 
     # Render with Jinja2
@@ -164,8 +166,18 @@ def generate_reminders(eligible_pms, db, cycle_id, config, pm_compliance_issues=
             logger.info("PM '%s' has reached max reminder stage %d, capping", name, max_stage)
             stage = max_stage
 
+        # Detect partial completion (completed one course since last reminder)
+        just_completed_fundamentals = _detect_partial_completion(pm_id, db, pm)
+
+        # Cap visible stage at 3 for templates (Stage 4+ all use default template anyway)
+        display_stage = min(stage, 3)
+
         # Render reminder
-        reminder = render_reminder(name, email, missing, stage, config, nice_to_have, compliance_issues)
+        reminder = render_reminder(
+            name, email, missing, display_stage, config, nice_to_have,
+            compliance_issues, just_completed_fundamentals=just_completed_fundamentals,
+        )
+        reminder["actual_stage"] = stage  # Keep real stage for DB tracking
 
         # Store in database
         db.insert_communication(cycle_id, pm_id, stage, reminder["subject"], reminder["body"])
@@ -180,6 +192,107 @@ def generate_reminders(eligible_pms, db, cycle_id, config, pm_compliance_issues=
     )
 
     return reminders, skipped_no_email
+
+
+def generate_congratulations(newly_certified_pms, db, cycle_id, config):
+    """Generate congratulations messages for PMs who just became fully certified.
+
+    These are PMs who were eligible for reminders in a previous cycle
+    (had communication history) but are now fully certified.
+
+    Args:
+        newly_certified_pms: List of PM dicts who just completed all training.
+        db: Database instance.
+        cycle_id: Current cycle ID.
+        config: Application configuration.
+
+    Returns:
+        List of congratulations reminder dicts.
+    """
+    template_path = config["templates"].get("congratulations")
+    if not template_path:
+        return []
+
+    from src.normalizer import normalize_name
+
+    congrats = []
+    for pm in newly_certified_pms:
+        name = pm["full_name"]
+        email = pm.get("email")
+
+        if not email or str(email) in ("", "None", "nan"):
+            continue
+
+        # Only congratulate PMs who were previously reminded
+        norm_name = normalize_name(name)
+        pm_id = db.get_project_manager_id(
+            email=email.lower().strip() if email else None,
+            normalized_name=norm_name,
+        )
+        if not pm_id:
+            continue
+
+        last_stage = db.get_last_reminder_stage(pm_id)
+        if last_stage == 0:
+            continue  # Never received a training reminder — no congrats needed
+
+        # Check if congrats already sent (stage 99 = congratulations marker)
+        already_sent = db.conn.execute(
+            "SELECT COUNT(*) FROM communication_history WHERE project_manager_id = ? AND reminder_stage = 99",
+            (pm_id,),
+        ).fetchone()[0]
+        if already_sent > 0:
+            continue
+
+        template_content = load_template(template_path)
+        lines = template_content.strip().split("\n", 1)
+        subject_tpl = lines[0].replace("Subject: ", "").strip()
+        body_tpl = lines[1].strip() if len(lines) > 1 else ""
+        subject = Template(subject_tpl).render(name=name)
+        body = Template(body_tpl).render(name=name)
+
+        db.insert_communication(cycle_id, pm_id, 99, subject, body, status="prepared")
+
+        congrats.append({
+            "recipient_email": email,
+            "subject": subject,
+            "body": body,
+            "stage": 99,
+            "name": name,
+            "missing_trainings": [],
+            "reminder_type": "congratulations",
+        })
+        logger.debug("Congratulations for %s <%s>", name, email)
+
+    logger.info("Generated %d congratulations messages", len(congrats))
+    return congrats
+
+
+def _detect_partial_completion(pm_id, db, current_pm):
+    """Check if PM completed a course since their last reminder.
+
+    Returns True if the PM just completed Fundamentals (and still needs Advanced).
+    This allows the template to acknowledge the progress.
+    """
+    # Check previous training snapshot
+    prev = db.conn.execute(
+        """SELECT fundamentals_status, advanced_status
+           FROM training_snapshots
+           WHERE project_manager_id = ?
+           ORDER BY cycle_id DESC LIMIT 1 OFFSET 1""",
+        (pm_id,),
+    ).fetchone()
+
+    if not prev:
+        return False
+
+    # Just completed Fundamentals (was incomplete last cycle, now completed)
+    if (prev["fundamentals_status"] == "incomplete"
+            and current_pm.get("fundamentals_completed")):
+        logger.debug("PM %d just completed Fundamentals", pm_id)
+        return True
+
+    return False
 
 
 def _was_pm_previously_reminded_itpm(pm_email, db):

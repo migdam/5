@@ -20,7 +20,7 @@ from src.file_loader import load_eppm, load_training, load_role_changes, load_ex
 from src.normalizer import extract_unique_pms, normalize_name, normalize_email
 from src.matcher import match_people
 from src.evaluator import evaluate_training, get_eligible_pms, find_projects_missing_it_pm, find_role_changed_it_pms, filter_ghost_projects, extract_pm_compliance_issues
-from src.communication import generate_reminders, generate_missing_itpm_reminders, generate_role_changed_reminders
+from src.communication import generate_reminders, generate_missing_itpm_reminders, generate_role_changed_reminders, generate_congratulations
 from src.reporting import generate_outputs
 from src.archiver import archive_files
 
@@ -162,6 +162,11 @@ def run_cycle(config_path="config.yaml"):
             eligible_pms, db, cycle_id, config, pm_compliance_issues
         )
 
+        # --- Step 6a: Generate congratulations for newly certified PMs ---
+        newly_certified = [pm for pm in evaluated_pms
+                           if pm.get("eligibility_status") in ("skipped_complete", "skipped_complete_nice_to_have")]
+        congratulations = generate_congratulations(newly_certified, db, cycle_id, config)
+
         # --- Step 6b: Find projects missing IT PM and generate reminders ---
         logger.info("Step 6b: Checking for active projects without IT PM")
         missing_itpm_list = find_projects_missing_it_pm(eppm_df, config)
@@ -199,6 +204,7 @@ def run_cycle(config_path="config.yaml"):
             "pms_inactive_projects": skipped_inactive,
             "pms_eligible_for_reminder": len(eligible_pms),
             "training_reminders_generated": len(reminders),
+            "congratulations_sent": len(congratulations),
             "skipped_no_email": skipped_no_email,
             "unmatched_training_people": len(unmatched_training),
             "projects_missing_it_pm": missing_itpm_project_count,
@@ -214,6 +220,7 @@ def run_cycle(config_path="config.yaml"):
             escalation_reminders=escalation_reminders,
             role_changed_reminders=role_changed_reminders,
             nice_to_have_pms=nice_to_have_pms,
+            congratulations=congratulations,
         )
 
         # --- Step 8: Archive input files ---

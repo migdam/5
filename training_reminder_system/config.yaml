@@ -101,6 +101,7 @@ templates:
   missing_itpm: "templates/missing_itpm_reminder.txt"
   missing_itpm_escalation: "templates/missing_itpm_escalation.txt"
   role_changed_itpm: "templates/role_changed_itpm_reminder.txt"
+  congratulations: "templates/congratulations.txt"
   group_training: "templates/group_training_reminder.txt"
   group_missing_itpm: "templates/group_missing_itpm_reminder.txt"
 
@@ -123,6 +124,7 @@ comms_schedule:
     - run_cycle          # Load data, evaluate, generate all outputs
   tuesday:
     - training_reminders # Individual training reminders (all stages)
+    - congratulations    # Congratulations for newly certified PMs
   wednesday:
     - missing_itpm       # Ask PMs to assign IT PM in ePPM
     - role_changed_itpm  # Alert PMs about IT PMs who changed roles

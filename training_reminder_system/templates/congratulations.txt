@@ -1,0 +1,22 @@
+Subject: Congratulations! You Have Completed Your Project Management Certification
+Dear {{name}},
+
+We are delighted to let you know that you have successfully completed all required project management training:
+
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+  - Certification Test for Managing Projects for Business Success (Advanced)
+
+This is a significant achievement that reflects your dedication to professional excellence and your commitment to delivering high-quality project outcomes.
+
+With these certifications, you are now fully equipped with:
+  - A strong foundation in project delivery best practices
+  - Advanced techniques for navigating complex delivery scenarios
+  - Alignment with the standards that drive consistency across our portfolio
+  - Recognized credentials that demonstrate your expertise
+
+Thank you for investing the time and effort to complete this training. Your skills and dedication make a real difference to the projects you lead and the teams you work with.
+
+We look forward to seeing the positive impact of your continued growth.
+
+With appreciation and congratulations,
+Project Management Office

@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 
 def generate_outputs(reminders, summary_data, config, cycle_id,
                      missing_itpm_reminders=None, escalation_reminders=None,
-                     role_changed_reminders=None, nice_to_have_pms=None):
+                     role_changed_reminders=None, nice_to_have_pms=None,
+                     congratulations=None):
     """Generate all output files for a processing cycle.
 
     Args:
@@ -32,6 +33,8 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
         role_changed_reminders = []
     if nice_to_have_pms is None:
         nice_to_have_pms = []
+    if congratulations is None:
+        congratulations = []
 
     output_base = config["paths"]["output_folder"]
     timestamp = get_timestamp()
@@ -72,6 +75,10 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
     if nice_to_have_pms:
         _write_nice_to_have(output_dir, nice_to_have_pms)
 
+    # 5e. Congratulations for newly certified PMs
+    if congratulations:
+        _write_congratulations(output_dir, congratulations)
+
     # 6. Group emails (single email with all recipients in To: field)
     if output_opts.get("generate_group_emails", False):
         _write_group_emails(output_dir, reminders, missing_itpm_reminders, config)
@@ -81,6 +88,7 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
     if comms_schedule:
         _write_comms_plan(output_dir, comms_schedule, cycle_id, {
             "training_reminders": reminders,
+            "congratulations": congratulations,
             "missing_itpm": missing_itpm_reminders,
             "escalations": escalation_reminders,
             "role_changed_itpm": role_changed_reminders,
@@ -348,6 +356,30 @@ def _write_nice_to_have(output_dir, nice_to_have_pms):
     logger.info("Nice-to-have folder: %d PMs with optional training suggestions", len(nice_to_have_pms))
 
 
+def _write_congratulations(output_dir, congratulations):
+    """Write congratulations messages for newly certified PMs."""
+    congrats_dir = os.path.join(output_dir, "congratulations")
+    os.makedirs(congrats_dir, exist_ok=True)
+
+    for r in congratulations:
+        safe_name = _safe_filename(r["name"])
+        filepath = os.path.join(congrats_dir, f"{safe_name}_congratulations.txt")
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("=" * 60 + "\n")
+            f.write("CONGRATULATIONS - READY TO SEND\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(f"To:      {r['recipient_email']}\n")
+            f.write(f"Subject: {r['subject']}\n")
+            f.write(f"Type:    Certification Congratulations\n")
+            f.write("\n" + "-" * 60 + "\n")
+            f.write("EMAIL BODY (copy below this line):\n")
+            f.write("-" * 60 + "\n\n")
+            f.write(r["body"])
+            f.write("\n")
+
+    logger.info("Congratulations folder: %d messages", len(congratulations))
+
+
 def _write_comms_plan(output_dir, schedule, cycle_id, data):
     """Generate a weekly communication plan with day-specific folders and a comms_plan.md.
 
@@ -384,6 +416,11 @@ def _write_comms_plan(output_dir, schedule, cycle_id, data):
             "count": len(data.get("training_reminders", [])),
             "source_folders": ["per_recipient", "stage_*"],
             "source_files": ["reminders.csv"],
+        },
+        "congratulations": {
+            "label": "Congratulations (newly certified PMs)",
+            "count": len(data.get("congratulations", [])),
+            "source_folders": ["congratulations"],
         },
         "missing_itpm": {
             "label": "Missing IT PM Reminders (to PMs)",

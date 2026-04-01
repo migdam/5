@@ -1,6 +1,8 @@
 Subject: Your Project Management Training: A Great Opportunity to Strengthen Your Skills
 Dear {{name}},
-
+{% if just_completed_fundamentals %}
+Congratulations on completing the Fundamentals certification! That is a great milestone. You are now one step away from being fully certified.
+{% endif %}
 We are reaching out again to highlight the value of the project management training courses that are available to you.
 {% if missing_both %}
 The following training is still outstanding:

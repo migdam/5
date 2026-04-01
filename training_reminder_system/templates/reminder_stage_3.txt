@@ -1,6 +1,8 @@
 Subject: Action Needed: Complete Your Project Management Training
 Dear {{name}},
-
+{% if just_completed_fundamentals %}
+Congratulations on completing the Fundamentals certification! You have made real progress, and we want to help you take the final step toward full certification.
+{% endif %}
 We are writing to follow up on your outstanding project management training. We know your time is valuable, and we want to make sure this stays on your radar.
 {% if missing_both %}
 You still have two courses to complete:

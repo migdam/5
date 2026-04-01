@@ -47,11 +47,11 @@ def test_render_stage_2():
 
 
 def test_render_default_stage():
-    """Stage 4+ should use the default template."""
+    """Stage 4+ should use the default template with follow-up subject."""
     config = make_config()
     result = render_reminder("Test PM", "test@corp.example", ["Fundamentals"], 5, config)
     assert result["stage"] == 5
-    assert "Stage 5" in result["subject"] or "5" in result["subject"]
+    assert "Follow-up" in result["subject"] or "Outstanding" in result["subject"]
 
 
 def test_determine_stage_first_time():

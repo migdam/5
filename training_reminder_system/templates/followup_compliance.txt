@@ -1,0 +1,31 @@
+Subject: Your Projects Need You: Complete Your PM Training
+Dear {{name}},
+{% if just_completed_fundamentals %}
+Congratulations on completing the Fundamentals certification! You are making great progress. Here is why completing the Advanced course matters right now.
+{% endif %}
+We wanted to reach out with a practical perspective on why completing your project management training is especially important for you at this point.
+{% if missing_both %}
+You still have two courses to complete:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+  - Certification Test for Managing Projects for Business Success (Advanced)
+{% elif completed_fundamentals %}
+One course remains:
+  - Certification Test for Managing Projects for Business Success (Advanced)
+{% elif missing_fundamentals %}
+One course remains:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+{% endif %}
+{% if has_compliance_issues %}
+Looking at your current project portfolio, the training is directly relevant to situations you are facing right now:
+
+{% for issue in compliance_issues %}  - {{issue.project_name}} ({{issue.project_id}}): {{issue.gate}} — {{issue.compliance_status}}{% if issue.action_needed %} → {{issue.action_needed}}{% endif %}
+
+{% endfor %}
+The training covers exactly these scenarios — stakeholder agreements, gate reviews, transition plans, and architecture assessments. Completing it will give you practical tools to resolve these items and prevent them in future projects.
+{% else %}
+The training provides practical frameworks for navigating gate reviews, managing stakeholder agreements, and ensuring your projects meet compliance requirements. These are skills that directly support the work you do every day.
+{% endif %}
+We are here to support you. If scheduling or workload is making it difficult to find time, please let us know — we can help.
+
+Best regards,
+Project Management Office

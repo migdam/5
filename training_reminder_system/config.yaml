@@ -98,6 +98,11 @@ templates:
   stage_2: "templates/reminder_stage_2.txt"
   stage_3: "templates/reminder_stage_3.txt"
   default: "templates/reminder_stage_default.txt"
+  # Rotating follow-up templates for Stage 4+ (sent bi-weekly)
+  # Angle 0: compliance/project-focused, 1: peer/social proof, 2: support/help offer
+  followup_0: "templates/followup_compliance.txt"
+  followup_1: "templates/followup_peers.txt"
+  followup_2: "templates/followup_support.txt"
   missing_itpm: "templates/missing_itpm_reminder.txt"
   missing_itpm_escalation: "templates/missing_itpm_escalation.txt"
   role_changed_itpm: "templates/role_changed_itpm_reminder.txt"

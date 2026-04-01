@@ -1,0 +1,30 @@
+Subject: How Can We Help You Complete Your Training?
+Dear {{name}},
+{% if just_completed_fundamentals %}
+Well done on completing the Fundamentals certification! We want to make sure you have everything you need to finish the last step.
+{% endif %}
+We understand that finding time for training alongside project responsibilities can be challenging. We are reaching out to ask: is there anything we can do to help?
+{% if missing_both %}
+You still have two courses to complete:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+  - Certification Test for Managing Projects for Business Success (Advanced)
+{% elif completed_fundamentals %}
+You are one course away from full certification:
+  - Certification Test for Managing Projects for Business Success (Advanced)
+{% elif missing_fundamentals %}
+One course remains:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+{% endif %}
+Here are some ways we can support you:
+
+  - **Scheduling help**: We can help coordinate with your portfolio manager to find a suitable time slot
+  - **Workload discussion**: If current project demands are making it difficult, we can facilitate a conversation about priorities
+  - **Technical access**: If you are having any issues accessing the learning platform, we can resolve them quickly
+  - **Quick overview**: If you would like a brief walkthrough of what the course covers before you start, we are happy to provide one
+
+The courses are designed to be completed in approximately 2 hours each, and they can be paused and resumed at your convenience.
+
+Your growth matters to us, and we want to remove any barriers that might be in the way. Please reply to this message or reach out to the Project Management Office directly.
+
+With appreciation,
+Project Management Office

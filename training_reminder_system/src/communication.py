@@ -16,8 +16,12 @@ def load_template(template_path):
     return content
 
 
-def get_template_for_stage(stage, config):
-    """Get the appropriate template file path for a reminder stage."""
+def get_template_for_stage(stage, config, reminder_angle=None):
+    """Get the appropriate template file path for a reminder stage.
+
+    For stages 1-3: use the specific stage template.
+    For stage 4+: rotate between follow-up variants based on reminder_angle.
+    """
     templates = config["templates"]
     if stage == 1 and "stage_1" in templates:
         return templates["stage_1"]
@@ -26,6 +30,11 @@ def get_template_for_stage(stage, config):
     elif stage == 3 and "stage_3" in templates:
         return templates["stage_3"]
     else:
+        # For follow-up reminders, rotate between variant templates
+        if reminder_angle is not None:
+            variant_key = f"followup_{reminder_angle}"
+            if variant_key in templates:
+                return templates[variant_key]
         return templates.get("default", templates.get("stage_3"))
 
 
@@ -38,7 +47,8 @@ def determine_reminder_stage(pm_id, db):
 
 
 def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_trainings=None,
-                    compliance_issues=None, just_completed_fundamentals=False):
+                    compliance_issues=None, just_completed_fundamentals=False,
+                    reminder_angle=None):
     """Render a reminder email using the appropriate stage template.
 
     Passes structured training gap info to templates so they can
@@ -53,7 +63,7 @@ def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_
     Returns:
         dict with recipient_email, subject, body, stage.
     """
-    template_path = get_template_for_stage(stage, config)
+    template_path = get_template_for_stage(stage, config, reminder_angle=reminder_angle)
     if nice_to_have_trainings is None:
         nice_to_have_trainings = []
     if compliance_issues is None:
@@ -166,16 +176,30 @@ def generate_reminders(eligible_pms, db, cycle_id, config, pm_compliance_issues=
             logger.info("PM '%s' has reached max reminder stage %d, capping", name, max_stage)
             stage = max_stage
 
+        # After Stage 3, send bi-weekly (skip every other week)
+        if stage > 3 and stage % 2 == 1:
+            logger.debug("Skipping PM '%s' this week (bi-weekly after stage 3, internal stage %d)", name, stage)
+            # Still record the stage progression in DB so next cycle gets the right number
+            db.insert_communication(cycle_id, pm_id, stage, "(skipped — bi-weekly)", "", status="skipped")
+            continue
+
         # Detect partial completion (completed one course since last reminder)
         just_completed_fundamentals = _detect_partial_completion(pm_id, db, pm)
 
-        # Cap visible stage at 3 for templates (Stage 4+ all use default template anyway)
-        display_stage = min(stage, 3)
+        # Cap visible stage at 3 for templates; for stage 4+ use rotating follow-up
+        if stage <= 3:
+            display_stage = stage
+            reminder_angle = None
+        else:
+            display_stage = 4  # Signals "use follow-up template" (not stage 1/2/3)
+            # Rotate: angle 0=compliance, 1=peers, 2=support offer
+            reminder_angle = ((stage - 4) // 2) % 3  # Changes every 2 sends (bi-weekly = monthly rotation)
 
         # Render reminder
         reminder = render_reminder(
             name, email, missing, display_stage, config, nice_to_have,
             compliance_issues, just_completed_fundamentals=just_completed_fundamentals,
+            reminder_angle=reminder_angle,
         )
         reminder["actual_stage"] = stage  # Keep real stage for DB tracking
 
@@ -269,30 +293,41 @@ def generate_congratulations(newly_certified_pms, db, cycle_id, config):
 
 
 def _detect_partial_completion(pm_id, db, current_pm):
-    """Check if PM completed a course since their last reminder.
+    """Check if PM completed a course since their last training reminder.
 
     Returns True if the PM just completed Fundamentals (and still needs Advanced).
-    This allows the template to acknowledge the progress.
+    Checks the most recent snapshot where Fundamentals was incomplete,
+    regardless of how many cycles ago it was (handles gaps).
     """
-    # Check previous training snapshot
+    if not current_pm.get("fundamentals_completed"):
+        return False  # Fundamentals not done yet — nothing to acknowledge
+
+    # Find the most recent snapshot where fundamentals was incomplete
     prev = db.conn.execute(
-        """SELECT fundamentals_status, advanced_status
+        """SELECT fundamentals_status
            FROM training_snapshots
-           WHERE project_manager_id = ?
-           ORDER BY cycle_id DESC LIMIT 1 OFFSET 1""",
+           WHERE project_manager_id = ? AND fundamentals_status = 'incomplete'
+           ORDER BY cycle_id DESC LIMIT 1""",
         (pm_id,),
     ).fetchone()
 
     if not prev:
-        return False
+        return False  # Fundamentals was never incomplete — was done from the start
 
-    # Just completed Fundamentals (was incomplete last cycle, now completed)
-    if (prev["fundamentals_status"] == "incomplete"
-            and current_pm.get("fundamentals_completed")):
-        logger.debug("PM %d just completed Fundamentals", pm_id)
-        return True
+    # Check that we haven't already acknowledged this (avoid repeating congrats)
+    # Look for any previous snapshot where fundamentals was already completed
+    already_acked = db.conn.execute(
+        """SELECT COUNT(*) FROM training_snapshots
+           WHERE project_manager_id = ? AND fundamentals_status = 'completed'
+           AND cycle_id < (SELECT MAX(cycle_id) FROM training_snapshots WHERE project_manager_id = ?)""",
+        (pm_id, pm_id),
+    ).fetchone()[0]
 
-    return False
+    if already_acked > 0:
+        return False  # Already acknowledged in a previous cycle
+
+    logger.debug("PM %d just completed Fundamentals (was incomplete in previous snapshots)", pm_id)
+    return True
 
 
 def _was_pm_previously_reminded_itpm(pm_email, db):

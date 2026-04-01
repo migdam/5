@@ -59,6 +59,73 @@ def load_excel(filepath, column_mapping):
     return df
 
 
+class InputValidationError(Exception):
+    """Raised when an input file fails validation checks."""
+    pass
+
+
+def validate_eppm(df, filepath, config):
+    """Validate that the ePPM file has the expected structure and content."""
+    errors = []
+    mapping = config["column_mapping"]["eppm"]
+
+    # Check critical columns exist
+    critical_cols = ["project_number", "project_manager", "project_manager_email", "project_status"]
+    for logical_name in critical_cols:
+        if logical_name not in df.columns:
+            actual_header = mapping.get(logical_name, logical_name)
+            errors.append(f"Missing critical column '{actual_header}' (mapped as '{logical_name}')")
+
+    # Check not empty
+    if len(df) == 0:
+        errors.append("ePPM file is empty (0 rows)")
+
+    # Check at least some PMs have values
+    if "project_manager" in df.columns:
+        non_null = df["project_manager"].dropna()
+        non_null = non_null[non_null.astype(str).str.strip() != ""]
+        if len(non_null) == 0:
+            errors.append("ePPM file has no Project Manager values")
+
+    if errors:
+        raise InputValidationError(
+            f"ePPM file validation failed ({filepath}):\n  " + "\n  ".join(errors)
+        )
+
+    logger.info("ePPM file validated: %d rows, critical columns present", len(df))
+
+
+def validate_training(df, filepath, config):
+    """Validate that the Fuse training file has the expected structure and content."""
+    errors = []
+    mapping = config["column_mapping"]["fuse"]
+
+    critical_cols = ["full_name", "email", "content_title", "course_status"]
+    for logical_name in critical_cols:
+        if logical_name not in df.columns:
+            actual_header = mapping.get(logical_name, logical_name)
+            errors.append(f"Missing critical column '{actual_header}' (mapped as '{logical_name}')")
+
+    if len(df) == 0:
+        errors.append("Training file is empty (0 rows)")
+
+    if "course_status" in df.columns:
+        valid_statuses = {"completed", "incomplete"}
+        actual = set(df["course_status"].dropna().astype(str).str.lower().str.strip().unique())
+        if actual and not actual.intersection(valid_statuses):
+            errors.append(
+                f"Training file has no recognized course_status values. "
+                f"Found: {actual}. Expected: {valid_statuses}"
+            )
+
+    if errors:
+        raise InputValidationError(
+            f"Training file validation failed ({filepath}):\n  " + "\n  ".join(errors)
+        )
+
+    logger.info("Training file validated: %d rows, critical columns present", len(df))
+
+
 def load_eppm(config):
     """Load the ePPM assignment file."""
     input_folder = config["paths"]["input_folder"]
@@ -66,6 +133,7 @@ def load_eppm(config):
     filepath = find_file(input_folder, pattern)
     mapping = config["column_mapping"]["eppm"]
     df = load_excel(filepath, mapping)
+    validate_eppm(df, filepath, config)
     logger.info("ePPM data: %d rows loaded", len(df))
     return df, filepath
 
@@ -77,6 +145,7 @@ def load_training(config):
     filepath = find_file(input_folder, pattern)
     mapping = config["column_mapping"]["fuse"]
     df = load_excel(filepath, mapping)
+    validate_training(df, filepath, config)
     logger.info("Training data: %d rows loaded", len(df))
     return df, filepath
 

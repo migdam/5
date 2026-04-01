@@ -115,6 +115,25 @@ class Database:
         logger.info("Started cycle %d", cycle_id)
         return cycle_id
 
+    def revert_cycle(self, cycle_id):
+        """Revert a cycle by deleting all its data from all tables.
+
+        Used when an incorrect input file is detected — rolls back everything
+        so the cycle can be re-run with correct data.
+        """
+        tables_with_cycle = [
+            "communication_history",
+            "training_snapshots",
+            "assignment_snapshots",
+            "data_quality_issues",
+            "processed_files",
+        ]
+        for table in tables_with_cycle:
+            self.conn.execute(f"DELETE FROM {table} WHERE cycle_id = ?", (cycle_id,))
+        self.conn.execute("DELETE FROM cycles WHERE id = ?", (cycle_id,))
+        self.conn.commit()
+        logger.info("Cycle %d reverted — all data removed", cycle_id)
+
     def complete_cycle(self, cycle_id, status="completed", notes=None):
         self.conn.execute(
             "UPDATE cycles SET run_status = ?, notes = ? WHERE id = ?",

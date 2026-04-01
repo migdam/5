@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.config_loader import load_config
 from src.utils import setup_logging
 from src.repository import Database
-from src.file_loader import load_eppm, load_training, load_role_changes, load_excluded_projects
+from src.file_loader import load_eppm, load_training, load_role_changes, load_excluded_projects, InputValidationError
 from src.normalizer import extract_unique_pms, normalize_name, normalize_email
 from src.matcher import match_people
 from src.evaluator import evaluate_training, get_eligible_pms, find_projects_missing_it_pm, find_role_changed_it_pms, filter_ghost_projects, extract_pm_compliance_issues
@@ -227,6 +227,17 @@ def run_cycle(config_path="config.yaml"):
         print("=" * 60 + "\n")
 
         logger.info("Cycle %d completed successfully", cycle_id)
+
+    except InputValidationError as e:
+        logger.error("Cycle %d REVERTED — invalid input file: %s", cycle_id, str(e))
+        print(f"\n{'!'*60}")
+        print(f"CYCLE REVERTED — Invalid input file detected")
+        print(f"{'!'*60}")
+        print(f"\n{str(e)}")
+        print(f"\nCycle {cycle_id} has been fully reverted. No data was saved.")
+        print(f"Please fix the input file and re-run.\n")
+        db.revert_cycle(cycle_id)
+        return None
 
     except Exception as e:
         logger.error("Cycle %d failed: %s", cycle_id, str(e), exc_info=True)

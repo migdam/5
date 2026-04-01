@@ -53,8 +53,8 @@ POSITIONS = [
     "Digital Project Lead", "Transformation Manager",
 ]
 
-# Non-PM positions for people who changed roles
-CHANGED_ROLE_POSITIONS = [
+# Non-PM roles for the role_changes.csv (people who left IT PM positions)
+CHANGED_ROLE_NAMES = [
     "Business Analyst", "Solution Architect", "Data Engineer",
     "Product Owner", "Scrum Master", "DevOps Engineer",
     "Quality Assurance Lead", "Technical Consultant",
@@ -565,18 +565,12 @@ def generate_all_cycles(rng, max_cycles=30):
     overlap_people = rng.sample(initial_eppm_pool, overlap_count)
     overlap_ids = {p["person_id"] for p in overlap_people}
 
-    # Mark ~8% of overlap people as having changed roles (non-PM position in Fuse)
-    # These people are still listed as IT PM in ePPM but their Fuse position
-    # will show a non-PM role, triggering the role-change detection
-    role_changed_count = max(2, int(len(overlap_people) * 0.08))
-    role_changed_people = rng.sample(overlap_people, role_changed_count)
-    for p in role_changed_people:
-        p["position"] = rng.choice(CHANGED_ROLE_POSITIONS)
-    role_changed_ids = {p["person_id"] for p in role_changed_people}
-    logger.info(
-        "%d people marked as role-changed (non-PM position in Fuse)",
-        len(role_changed_ids),
-    ) if False else None  # logged at generation time via print below
+    # Select people who will be reported as having changed roles via CSV
+    # These people stay in the people master with PM positions (Fuse won't detect them)
+    # but they appear in the manually maintained role_changes.csv
+    role_change_pool_count = max(4, int(len(overlap_people) * 0.10))
+    role_change_pool = rng.sample(overlap_people, role_change_pool_count)
+    role_change_pool_ids = {p["person_id"] for p in role_change_pool}
 
     # Extra Fuse-only people (stable background learners)
     fuse_only_candidates = [p for p in people if p["person_id"] not in overlap_ids
@@ -796,7 +790,7 @@ def generate_all_cycles(rng, max_cycles=30):
             print(f"\n  All matchable active PMs are fully certified! Stopping at cycle {cycle_num}.")
             break
 
-    return cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_changed_ids
+    return cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_change_pool
 
 
 def _cycle_label(cycle_num):
@@ -812,7 +806,7 @@ def main():
 
     rng = random.Random(args.seed)
 
-    cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_changed_ids = generate_all_cycles(
+    cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_change_pool = generate_all_cycles(
         rng, max_cycles=args.max_cycles
     )
 
@@ -822,6 +816,41 @@ def main():
     sim_base = os.path.join(base_dir, "data", "simulation")
     if os.path.exists(sim_base):
         shutil.rmtree(sim_base)
+
+    total_cycles = len(cycles_data)
+
+    # Generate role_changes.csv per cycle
+    # Simulates feedback arriving over time: the list grows as more people report changes
+    # Cycle 1: no CSV (nobody reported yet)
+    # Cycle 2+: gradually add people from role_change_pool
+    role_change_csvs = {}
+    accumulated_changes = []
+    for cycle_num in sorted(cycles_data.keys()):
+        if cycle_num == 1 or not role_change_pool:
+            role_change_csvs[cycle_num] = None
+            continue
+
+        # Every 2-3 weeks, 1-2 new role changes get reported
+        if cycle_num % 2 == 0 and accumulated_changes != role_change_pool:
+            remaining = [p for p in role_change_pool if p not in accumulated_changes]
+            if remaining:
+                new_reports = remaining[:rng.randint(1, min(2, len(remaining)))]
+                accumulated_changes.extend(new_reports)
+
+        if accumulated_changes:
+            base_date = datetime(2026, 3, 1)
+            rows = []
+            for p in accumulated_changes:
+                rows.append({
+                    "it_pm_email": p["email_primary"],
+                    "it_pm_name": p["full_name"],
+                    "new_role": rng.choice(CHANGED_ROLE_NAMES),
+                    "reported_date": (base_date + timedelta(days=rng.randint(0, cycle_num * 7))).strftime("%Y-%m-%d"),
+                    "notes": "Confirmed via team feedback",
+                })
+            role_change_csvs[cycle_num] = rows
+        else:
+            role_change_csvs[cycle_num] = None
 
     for cycle_num, (eppm_rows, fuse_rows) in sorted(cycles_data.items()):
         cycle_dir = os.path.join(base_dir, "data", "simulation", f"cycle_{cycle_num}")
@@ -833,12 +862,24 @@ def main():
         write_excel(eppm_rows, eppm_path, sheet_name="ePPM")
         write_excel(fuse_rows, fuse_path, sheet_name="Fuse")
 
+        # Write role_changes.csv if available for this cycle
+        csv_data = role_change_csvs.get(cycle_num)
+        if csv_data:
+            import csv
+            csv_path = os.path.join(cycle_dir, "role_changes.csv")
+            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=[
+                    "it_pm_email", "it_pm_name", "new_role", "reported_date", "notes"
+                ])
+                writer.writeheader()
+                writer.writerows(csv_data)
+
     # Copy cycle 1 to data/input for easy first run
     input_dir = os.path.join(base_dir, "data", "input")
     os.makedirs(input_dir, exist_ok=True)
     # Clear existing input files
     for f in os.listdir(input_dir):
-        if f.endswith(".xlsx"):
+        if f.endswith((".xlsx", ".csv")):
             os.remove(os.path.join(input_dir, f))
     shutil.copy2(
         os.path.join(base_dir, "data", "simulation", "cycle_1", "ePPM_export.xlsx"),
@@ -858,7 +899,9 @@ def main():
     print(f"People master: {len(people)}")
     print(f"Overlap people (in both ePPM and Fuse): {len(overlap_ids)}")
     print(f"Alias cases: {len(alias_ids)}")
-    print(f"Role-changed IT PMs (non-PM position): {len(role_changed_ids)}")
+    print(f"Role-change pool (for CSV): {len(role_change_pool)}")
+    csv_cycles = [c for c, d in role_change_csvs.items() if d]
+    print(f"Cycles with role_changes.csv: {len(csv_cycles)} (cycles {csv_cycles[:5]}{'...' if len(csv_cycles) > 5 else ''})")
     contractors = sum(1 for p in people if p["employment_type"] == "Contractor")
     print(f"Contractors: {contractors}")
     print(f"Standard: {sum(1 for p in people if p['employment_type'] == 'Standard')}")

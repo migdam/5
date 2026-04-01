@@ -224,40 +224,50 @@ def find_projects_missing_it_pm(eppm_df, config):
     return result
 
 
-def find_role_changed_it_pms(eppm_df, training_df, config):
-    """Find IT PMs in ePPM whose current position in Fuse indicates a role change.
+def find_role_changed_it_pms(eppm_df, role_changes_df, config):
+    """Find IT PMs in ePPM who have changed roles according to a manually maintained list.
 
-    If someone is listed as IT PM on an active project but their Fuse position
-    no longer matches a valid IT PM role, they likely changed roles and the
-    ePPM allocation needs updating.
+    The role_changes_df comes from a CSV file that is updated by users based on
+    feedback from people. When an IT PM changes roles, their details are added
+    to this file. The system then flags active projects where that person is
+    still assigned as IT PM.
 
     Args:
         eppm_df: ePPM DataFrame with mapped column names.
-        training_df: Fuse DataFrame with mapped column names.
+        role_changes_df: DataFrame from role_changes.csv, or None if not provided.
         config: Application configuration.
 
     Returns:
         List of dicts grouped by PM responsible, with affected projects and
         the IT PM who changed roles.
     """
+    if role_changes_df is None or role_changes_df.empty:
+        logger.info("No role changes data provided — skipping role-change detection")
+        return []
+
     from src.normalizer import normalize_email
 
     active_statuses = [s.lower() for s in config["status_mapping"]["project_active_statuses"]]
-    valid_positions = [p.lower() for p in config.get("valid_itpm_positions", [
-        "IT Project Manager", "Project Manager", "Senior Project Manager",
-        "Program Manager", "IT Manager", "Digital Project Lead",
-    ])]
 
-    # Build position lookup from Fuse: email -> latest position
-    fuse_positions = {}
-    for _, row in training_df.iterrows():
-        email = row.get("email")
-        position = row.get("position")
-        if email and str(email) not in ("", "None", "nan"):
-            norm_email = normalize_email(str(email))
-            if position and str(position) not in ("", "None", "nan"):
-                fuse_positions[norm_email] = str(position)
+    # Build lookup from role_changes CSV: normalized_email -> {name, new_role}
+    role_changed_lookup = {}
+    for _, row in role_changes_df.iterrows():
+        email = row.get("it_pm_email")
+        if not email or str(email) in ("", "None", "nan"):
+            continue
+        norm_email = normalize_email(str(email))
+        role_changed_lookup[norm_email] = {
+            "name": str(row.get("it_pm_name", "")) if row.get("it_pm_name") else "",
+            "new_role": str(row.get("new_role", "")) if row.get("new_role") else "Unknown",
+        }
 
+    if not role_changed_lookup:
+        logger.info("Role changes CSV is empty — no role changes to process")
+        return []
+
+    logger.info("Loaded %d role-changed IT PMs from CSV", len(role_changed_lookup))
+
+    # Scan ePPM for active projects with IT PMs in the role-changed list
     role_changed = []
 
     for _, row in eppm_df.iterrows():
@@ -273,15 +283,11 @@ def find_role_changed_it_pms(eppm_df, training_df, config):
             continue
 
         norm_itpm_email = normalize_email(str(it_pm_email))
-        current_position = fuse_positions.get(norm_itpm_email)
+        change_info = role_changed_lookup.get(norm_itpm_email)
 
-        if not current_position:
-            continue  # Can't determine position — skip
+        if not change_info:
+            continue  # This IT PM is not in the role-changed list
 
-        if current_position.lower() in valid_positions:
-            continue  # Position is still valid
-
-        # Role mismatch detected
         pm_name = row.get("project_manager")
         pm_email = row.get("project_manager_email")
         owner_name = row.get("project_owner")
@@ -292,7 +298,7 @@ def find_role_changed_it_pms(eppm_df, training_df, config):
             "project_id": str(row.get("project_number", "")),
             "it_pm_name": str(it_pm_name),
             "it_pm_email": str(it_pm_email),
-            "current_position": current_position,
+            "current_position": change_info["new_role"],
             "pm_name": str(pm_name) if pm_name and str(pm_name) not in ("", "None", "nan") else None,
             "pm_email": str(pm_email) if pm_email and str(pm_email) not in ("", "None", "nan") else None,
             "owner_name": str(owner_name) if owner_name and str(owner_name) not in ("", "None", "nan") else None,

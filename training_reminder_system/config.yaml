@@ -29,6 +29,15 @@ column_mapping:
     it_portfolio_manager_email: "IT Portfolio Manager Email"
     project_compliance: "Project Compliance"
 
+  # Role changes file (manually maintained CSV)
+  # Updated by users based on feedback when IT PMs change roles
+  role_changes:
+    it_pm_email: "it_pm_email"
+    it_pm_name: "it_pm_name"
+    new_role: "new_role"
+    reported_date: "reported_date"
+    notes: "notes"
+
   fuse:
     full_name: "Full Name"
     email: "Email"
@@ -83,19 +92,6 @@ matching:
   match_by_exact_name: true
   match_by_normalized_name: true
 
-# Valid positions for IT Project Managers (used to detect role changes)
-# If a person listed as IT PM in ePPM has a Fuse position NOT in this list,
-# they are flagged as having changed roles.
-valid_itpm_positions:
-  - "IT Project Manager"
-  - "Project Manager"
-  - "Senior Project Manager"
-  - "Program Manager"
-  - "IT Manager"
-  - "Digital Project Lead"
-  - "Transformation Manager"
-  - "Portfolio Manager"
-
 # Communication options
 communication:
   max_reminder_stage: 0  # 0 means no limit; uses default template for stage > 3
@@ -112,3 +108,4 @@ output:
 file_patterns:
   eppm: "*ePPM*.*xlsx"
   fuse: "*Fuse*.*xlsx"
+  role_changes: "*role_changes*.*csv"

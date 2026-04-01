@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.config_loader import load_config
 from src.utils import setup_logging
 from src.repository import Database
-from src.file_loader import load_eppm, load_training
+from src.file_loader import load_eppm, load_training, load_role_changes
 from src.normalizer import extract_unique_pms, normalize_name, normalize_email
 from src.matcher import match_people
 from src.evaluator import evaluate_training, get_eligible_pms, find_projects_missing_it_pm, find_role_changed_it_pms
@@ -136,9 +136,12 @@ def run_cycle(config_path="config.yaml"):
             missing_itpm_list, db, cycle_id, config
         )
 
-        # --- Step 6c: Find IT PMs who changed roles ---
+        # --- Step 6c: Find IT PMs who changed roles (from manual CSV) ---
         logger.info("Step 6c: Checking for IT PMs who changed roles")
-        role_changed_list = find_role_changed_it_pms(eppm_df, training_df, config)
+        role_changes_df, role_changes_path = load_role_changes(config)
+        if role_changes_path:
+            input_files.append(("role_changes", role_changes_path))
+        role_changed_list = find_role_changed_it_pms(eppm_df, role_changes_df, config)
         role_changed_reminders = generate_role_changed_reminders(
             role_changed_list, db, cycle_id, config
         )

@@ -79,3 +79,45 @@ def load_training(config):
     df = load_excel(filepath, mapping)
     logger.info("Training data: %d rows loaded", len(df))
     return df, filepath
+
+
+def load_role_changes(config):
+    """Load the manually maintained role changes CSV file.
+
+    This file lists IT PMs who have changed roles and should no longer
+    be assigned as IT PM on projects. It is optional — if not found,
+    role-change detection is skipped.
+
+    Returns:
+        (DataFrame, filepath) if file found, or (None, None) if not found.
+    """
+    input_folder = config["paths"]["input_folder"]
+    pattern = config.get("file_patterns", {}).get("role_changes", "*role_changes*.*csv")
+    try:
+        filepath = find_file(input_folder, pattern)
+    except FileNotFoundError:
+        logger.info("No role_changes CSV found in %s — skipping role-change detection", input_folder)
+        return None, None
+
+    mapping = config.get("column_mapping", {}).get("role_changes", {})
+
+    logger.info("Loading role changes CSV: %s", filepath)
+    df = pd.read_csv(filepath)
+    logger.info("Loaded %d role change entries", len(df))
+
+    # Rename columns using mapping
+    reverse_map = {v: k for k, v in mapping.items()}
+    available = set(df.columns)
+    mapped_cols = {}
+    for actual_header, logical_name in reverse_map.items():
+        if actual_header in available:
+            mapped_cols[actual_header] = logical_name
+
+    df = df.rename(columns=mapped_cols)
+
+    # Strip whitespace from string columns
+    for col in df.select_dtypes(include=["object"]).columns:
+        df[col] = df[col].astype(str).str.strip()
+        df[col] = df[col].replace("nan", None)
+
+    return df, filepath

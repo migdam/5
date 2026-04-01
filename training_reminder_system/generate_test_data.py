@@ -235,7 +235,7 @@ def build_portfolio_pool(people, rng, pool_size=25):
 
 def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
                        completed_project_ids=None, new_project_start=0,
-                       stage_overrides=None):
+                       stage_overrides=None, cancelled_project_ids=None):
     """Generate ePPM project assignment data.
 
     Args:
@@ -251,6 +251,8 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
         completed_project_ids = set()
     if stage_overrides is None:
         stage_overrides = {}
+    if cancelled_project_ids is None:
+        cancelled_project_ids = set()
 
     non_contractor_people = [p for p in people if p["employment_type"] != "Contractor"]
     rows = []
@@ -293,6 +295,11 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
         if proj_id in completed_project_ids:
             stage = "Completed"
             status = "Completed"
+        elif proj_id in cancelled_project_ids:
+            # Ghost projects: cancelled but status not updated in ePPM
+            # They still show "Not Completed" with their last known stage
+            stage = stage_overrides.get(proj_id, rng.choice(["G0", "G1", "G2", "G3"]))
+            status = "Not Completed"  # Stale — not updated
         elif proj_id in stage_overrides:
             stage = stage_overrides[proj_id]
             status = "Completed" if stage == "Completed" else "Not Completed"
@@ -584,6 +591,7 @@ def generate_all_cycles(rng, max_cycles=30):
     # Track all project IDs and their completion state
     all_project_ids = []
     completed_project_ids = set()
+    cancelled_project_ids = set()  # Ghost projects — cancelled but not updated in ePPM
     stage_overrides = {}
 
     # Track which people are currently in the ePPM people pool (for assigning to projects)
@@ -699,9 +707,17 @@ def generate_all_cycles(rng, max_cycles=30):
                 if pid not in stage_overrides:
                     stage_overrides[pid] = row["Active Stage"]
         else:
+            # Cancel ~1-2% of active projects per cycle (ghost projects)
+            still_active = [pid for pid in all_project_ids
+                            if pid not in completed_project_ids and pid not in cancelled_project_ids]
+            n_cancel = max(0, int(len(still_active) * rng.uniform(0.005, 0.015)))
+            if n_cancel > 0:
+                newly_cancelled = rng.sample(still_active, n_cancel)
+                cancelled_project_ids.update(newly_cancelled)
+                still_active = [pid for pid in still_active if pid not in cancelled_project_ids]
+
             # Advance projects through gate sequence (G0→G1→...→G6→Completed)
             # Each project has ~7.7% chance of advancing 1 gate per week (avg 3 months/gate)
-            still_active = [pid for pid in all_project_ids if pid not in completed_project_ids]
             for pid in still_active:
                 if rng.random() < GATE_ADVANCE_PROB:
                     current = stage_overrides.get(pid, "G0")
@@ -721,6 +737,7 @@ def generate_all_cycles(rng, max_cycles=30):
                 num_projects=len(all_project_ids),
                 completed_project_ids=completed_project_ids,
                 stage_overrides=stage_overrides,
+                cancelled_project_ids=cancelled_project_ids,
             )
 
             # Add new projects (start mostly at G0/G1)
@@ -780,7 +797,7 @@ def generate_all_cycles(rng, max_cycles=30):
                       if person_training_state.get(pid, {}).get("adv_completed"))
         total_fuse = len(all_fuse_person_ids)
 
-        print(f"  Projects: {len(eppm_rows)}, Fuse records: {len(fuse_rows)}")
+        print(f"  Projects: {len(eppm_rows)} (ghost/cancelled: {len(cancelled_project_ids)}), Fuse records: {len(fuse_rows)}")
         print(f"  New PMs this cycle: {len(new_pms_this_cycle)}")
         print(f"  Training: Fund {fund_done}/{total_fuse} ({100*fund_done/total_fuse:.0f}%), "
               f"Adv {adv_done}/{total_fuse} ({100*adv_done/total_fuse:.0f}%)")
@@ -790,7 +807,7 @@ def generate_all_cycles(rng, max_cycles=30):
             print(f"\n  All matchable active PMs are fully certified! Stopping at cycle {cycle_num}.")
             break
 
-    return cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_change_pool
+    return cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_change_pool, cancelled_project_ids
 
 
 def _cycle_label(cycle_num):
@@ -806,7 +823,7 @@ def main():
 
     rng = random.Random(args.seed)
 
-    cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_change_pool = generate_all_cycles(
+    cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_change_pool, cancelled_project_ids = generate_all_cycles(
         rng, max_cycles=args.max_cycles
     )
 
@@ -852,6 +869,32 @@ def main():
         else:
             role_change_csvs[cycle_num] = None
 
+    # Build excluded_projects data per cycle (ghost projects accumulate over time)
+    # Simulates: someone discovers a project is dead and adds it to the exclusion list
+    excluded_projects_per_cycle = {}
+    accumulated_excluded = []
+    cancelled_list = sorted(cancelled_project_ids)
+    for cycle_num in sorted(cycles_data.keys()):
+        if cycle_num <= 2 or not cancelled_list:
+            excluded_projects_per_cycle[cycle_num] = None
+            continue
+        # Every few weeks, 1-3 ghost projects get reported and added to exclusion list
+        if cycle_num % 3 == 0:
+            remaining = [pid for pid in cancelled_list if pid not in [e["project_id"] for e in accumulated_excluded]]
+            if remaining:
+                new_excluded = remaining[:rng.randint(1, min(3, len(remaining)))]
+                base_date = datetime(2026, 3, 1)
+                for pid in new_excluded:
+                    accumulated_excluded.append({
+                        "project_id": pid,
+                        "reason": rng.choice(["Cancelled", "Cancelled - budget cut", "Cancelled - merged with another project", "On Hold indefinitely"]),
+                        "reported_date": (base_date + timedelta(days=rng.randint(0, cycle_num * 7))).strftime("%Y-%m-%d"),
+                    })
+        if accumulated_excluded:
+            excluded_projects_per_cycle[cycle_num] = list(accumulated_excluded)
+        else:
+            excluded_projects_per_cycle[cycle_num] = None
+
     for cycle_num, (eppm_rows, fuse_rows) in sorted(cycles_data.items()):
         cycle_dir = os.path.join(base_dir, "data", "simulation", f"cycle_{cycle_num}")
         os.makedirs(cycle_dir, exist_ok=True)
@@ -867,6 +910,12 @@ def main():
         if csv_data:
             rc_path = os.path.join(cycle_dir, "role_changes.xlsx")
             write_excel(csv_data, rc_path, sheet_name="Role Changes")
+
+        # Write excluded_projects.xlsx if available for this cycle
+        excl_data = excluded_projects_per_cycle.get(cycle_num)
+        if excl_data:
+            excl_path = os.path.join(cycle_dir, "excluded_projects.xlsx")
+            write_excel(excl_data, excl_path, sheet_name="Excluded Projects")
 
     # Copy cycle 1 to data/input for easy first run
     input_dir = os.path.join(base_dir, "data", "input")
@@ -893,7 +942,8 @@ def main():
     print(f"People master: {len(people)}")
     print(f"Overlap people (in both ePPM and Fuse): {len(overlap_ids)}")
     print(f"Alias cases: {len(alias_ids)}")
-    print(f"Role-change pool (for CSV): {len(role_change_pool)}")
+    print(f"Role-change pool: {len(role_change_pool)}")
+    print(f"Ghost/cancelled projects: {len(cancelled_project_ids)}")
     csv_cycles = [c for c, d in role_change_csvs.items() if d]
     print(f"Cycles with role_changes.xlsx: {len(csv_cycles)} (cycles {csv_cycles[:5]}{'...' if len(csv_cycles) > 5 else ''})")
     contractors = sum(1 for p in people if p["employment_type"] == "Contractor")

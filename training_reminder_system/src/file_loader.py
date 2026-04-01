@@ -103,3 +103,27 @@ def load_role_changes(config):
     df = load_excel(filepath, mapping)
     logger.info("Role changes data: %d entries loaded", len(df))
     return df, filepath
+
+
+def load_excluded_projects(config):
+    """Load the manually maintained excluded projects Excel file.
+
+    This file lists project IDs for ghost projects (completed, cancelled,
+    or otherwise no longer active) that should be excluded from analysis
+    even if they still appear in ePPM. It is optional.
+
+    Returns:
+        (DataFrame, filepath) if file found, or (None, None) if not found.
+    """
+    input_folder = config["paths"]["input_folder"]
+    pattern = config.get("file_patterns", {}).get("excluded_projects", "*excluded_projects*.*xlsx")
+    try:
+        filepath = find_file(input_folder, pattern)
+    except FileNotFoundError:
+        logger.info("No excluded_projects file found in %s", input_folder)
+        return None, None
+
+    mapping = config.get("column_mapping", {}).get("excluded_projects", {})
+    df = load_excel(filepath, mapping)
+    logger.info("Excluded projects data: %d entries loaded", len(df))
+    return df, filepath

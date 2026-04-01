@@ -4,6 +4,75 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def filter_ghost_projects(eppm_df, excluded_projects_df, config):
+    """Filter out ghost projects from ePPM data before analysis.
+
+    Removes projects that are:
+    1. In an excluded status (Completed, Cancelled, On Hold, etc.)
+    2. At a completed Active Stage
+    3. In the manually maintained excluded_projects list (by project ID)
+
+    Args:
+        eppm_df: ePPM DataFrame with mapped column names.
+        excluded_projects_df: DataFrame from excluded_projects.xlsx, or None.
+        config: Application configuration.
+
+    Returns:
+        (filtered_df, ghost_count, ghost_details) where ghost_details is a dict
+        with counts by reason.
+    """
+    original_count = len(eppm_df)
+    ghost_mask = pd.Series(False, index=eppm_df.index)
+    ghost_details = {"excluded_status": 0, "completed_stage": 0, "manual_exclusion": 0}
+
+    # 1. Filter by excluded statuses (Completed, Cancelled, On Hold)
+    excluded_statuses = [s.lower() for s in config.get("status_mapping", {}).get(
+        "project_excluded_statuses", ["Completed", "Cancelled", "On Hold"]
+    )]
+    if excluded_statuses:
+        status_mask = eppm_df["project_status"].astype(str).str.lower().str.strip().isin(excluded_statuses)
+        ghost_details["excluded_status"] = int(status_mask.sum())
+        ghost_mask = ghost_mask | status_mask
+
+    # 2. Filter by completed Active Stage
+    completed_stages = [s.lower() for s in config.get("status_mapping", {}).get(
+        "project_completed_stages", ["Completed"]
+    )]
+    if completed_stages and "active_stage" in eppm_df.columns:
+        stage_mask = eppm_df["active_stage"].astype(str).str.lower().str.strip().isin(completed_stages)
+        # Only count those not already caught by status filter
+        ghost_details["completed_stage"] = int((stage_mask & ~ghost_mask).sum())
+        ghost_mask = ghost_mask | stage_mask
+
+    # 3. Filter by manual exclusion list
+    if excluded_projects_df is not None and not excluded_projects_df.empty:
+        excluded_ids = set()
+        for _, row in excluded_projects_df.iterrows():
+            pid = row.get("project_id")
+            if pid and str(pid) not in ("", "None", "nan"):
+                excluded_ids.add(str(pid).strip())
+
+        if excluded_ids and "project_number" in eppm_df.columns:
+            manual_mask = eppm_df["project_number"].astype(str).str.strip().isin(excluded_ids)
+            ghost_details["manual_exclusion"] = int((manual_mask & ~ghost_mask).sum())
+            ghost_mask = ghost_mask | manual_mask
+
+    filtered_df = eppm_df[~ghost_mask].copy()
+    ghost_count = original_count - len(filtered_df)
+
+    logger.info(
+        "Ghost project filter: %d of %d projects excluded "
+        "(%d by status, %d by stage, %d by manual list). %d projects remain.",
+        ghost_count, original_count,
+        ghost_details["excluded_status"],
+        ghost_details["completed_stage"],
+        ghost_details["manual_exclusion"],
+        len(filtered_df),
+    )
+
+    return filtered_df, ghost_count, ghost_details
+
+
 def evaluate_training(matched_pms, training_df, config):
     """Evaluate training completion for each matched PM.
 

@@ -15,10 +15,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.config_loader import load_config
 from src.utils import setup_logging
 from src.repository import Database
-from src.file_loader import load_eppm, load_training, load_role_changes
+from src.file_loader import load_eppm, load_training, load_role_changes, load_excluded_projects
 from src.normalizer import extract_unique_pms, normalize_name, normalize_email
 from src.matcher import match_people
-from src.evaluator import evaluate_training, get_eligible_pms, find_projects_missing_it_pm, find_role_changed_it_pms
+from src.evaluator import evaluate_training, get_eligible_pms, find_projects_missing_it_pm, find_role_changed_it_pms, filter_ghost_projects
 from src.communication import generate_reminders, generate_missing_itpm_reminders, generate_role_changed_reminders
 from src.reporting import generate_outputs
 from src.archiver import archive_files
@@ -48,6 +48,17 @@ def run_cycle(config_path="config.yaml"):
         eppm_df, eppm_path = load_eppm(config)
         training_df, training_path = load_training(config)
         input_files = [("eppm", eppm_path), ("fuse", training_path)]
+
+        # --- Step 1b: Load optional excluded projects list ---
+        excluded_projects_df, excluded_projects_path = load_excluded_projects(config)
+        if excluded_projects_path:
+            input_files.append(("excluded_projects", excluded_projects_path))
+
+        # --- Step 1c: Filter out ghost projects ---
+        logger.info("Step 1c: Filtering ghost projects (completed, cancelled, excluded)")
+        eppm_df, ghost_count, ghost_details = filter_ghost_projects(
+            eppm_df, excluded_projects_df, config
+        )
 
         # --- Step 2: Extract unique PMs from ePPM ---
         logger.info("Step 2: Extracting unique PMs from ePPM")
@@ -152,6 +163,10 @@ def run_cycle(config_path="config.yaml"):
         role_changed_project_count = sum(len(g["projects"]) for g in role_changed_list)
         summary_data = {
             "cycle_id": cycle_id,
+            "ghost_projects_filtered": ghost_count,
+            "ghost_by_status": ghost_details.get("excluded_status", 0),
+            "ghost_by_stage": ghost_details.get("completed_stage", 0),
+            "ghost_by_manual_list": ghost_details.get("manual_exclusion", 0),
             "total_pms_in_eppm": len(unique_pms),
             "total_pm_assignments": len(all_pms_df),
             "matched_pms": len(matched_pms),

@@ -29,7 +29,13 @@ column_mapping:
     it_portfolio_manager_email: "IT Portfolio Manager Email"
     project_compliance: "Project Compliance"
 
-  # Role changes file (manually maintained CSV)
+  # Excluded projects file (manually maintained, ghost/cancelled projects)
+  excluded_projects:
+    project_id: "project_id"
+    reason: "reason"
+    reported_date: "reported_date"
+
+  # Role changes file (manually maintained)
   # Updated by users based on feedback when IT PMs change roles
   role_changes:
     it_pm_email: "it_pm_email"
@@ -61,7 +67,12 @@ status_mapping:
     - "incomplete"
   project_active_statuses:
     - "Not Completed"
-  project_completed_statuses:
+  project_excluded_statuses:
+    - "Completed"
+    - "Cancelled"
+    - "On Hold"
+  # Active Stage values that indicate a project is done (ghost if still in ePPM)
+  project_completed_stages:
     - "Completed"
 
 # Required training courses: content titles that PMs must complete
@@ -109,3 +120,4 @@ file_patterns:
   eppm: "*ePPM*.*xlsx"
   fuse: "*Fuse*.*xlsx"
   role_changes: "*role_changes*.*xlsx"
+  excluded_projects: "*excluded_projects*.*xlsx"

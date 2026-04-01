@@ -8,6 +8,7 @@ output files for manual sending.
 import sys
 import os
 import logging
+from datetime import datetime
 
 # Ensure project root is on the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -41,6 +42,8 @@ def run_cycle(config_path="config.yaml"):
     # Initialize database
     db = Database(config["paths"]["database"])
     cycle_id = db.start_cycle()
+    cycle_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logger.info("Cycle %d started at %s", cycle_id, cycle_start)
 
     try:
         # --- Step 1: Load Excel files ---
@@ -169,6 +172,7 @@ def run_cycle(config_path="config.yaml"):
         role_changed_project_count = sum(len(g["projects"]) for g in role_changed_list)
         summary_data = {
             "cycle_id": cycle_id,
+            "cycle_started_at": cycle_start,
             "ghost_projects_filtered": ghost_count,
             "ghost_by_status": ghost_details.get("excluded_status", 0),
             "ghost_by_stage": ghost_details.get("completed_stage", 0),

@@ -132,7 +132,7 @@ def run_cycle(config_path="config.yaml"):
         # --- Step 6b: Find projects missing IT PM and generate reminders ---
         logger.info("Step 6b: Checking for active projects without IT PM")
         missing_itpm_list = find_projects_missing_it_pm(eppm_df, config)
-        missing_itpm_reminders = generate_missing_itpm_reminders(
+        missing_itpm_reminders, escalation_reminders = generate_missing_itpm_reminders(
             missing_itpm_list, db, cycle_id, config
         )
 
@@ -152,12 +152,14 @@ def run_cycle(config_path="config.yaml"):
             "skipped_no_email": skipped_no_email,
             "unmatched_training_people": len(unmatched_training),
             "projects_missing_it_pm": missing_itpm_project_count,
-            "missing_itpm_reminders_generated": len(missing_itpm_reminders),
+            "missing_itpm_reminders_to_pm": len(missing_itpm_reminders),
+            "missing_itpm_escalations_to_owner": len(escalation_reminders),
         }
 
         output_dir = generate_outputs(
             reminders, summary_data, config, cycle_id,
             missing_itpm_reminders=missing_itpm_reminders,
+            escalation_reminders=escalation_reminders,
         )
 
         # --- Step 8: Archive input files ---
@@ -167,7 +169,8 @@ def run_cycle(config_path="config.yaml"):
         # --- Complete cycle ---
         notes = (
             f"Generated {len(reminders)} training reminders, "
-            f"{len(missing_itpm_reminders)} missing IT PM reminders. Output: {output_dir}"
+            f"{len(missing_itpm_reminders)} IT PM reminders to PMs, "
+            f"{len(escalation_reminders)} escalations to owners. Output: {output_dir}"
         )
         db.complete_cycle(cycle_id, "completed", notes)
 

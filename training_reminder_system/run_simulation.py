@@ -247,8 +247,8 @@ def main():
     # Print compact progression table
     if all_summaries:
         print("\n--- Cycle Progression Table ---")
-        print(f"{'Cycle':<8} {'PMs':<8} {'Matched':<10} {'Complete':<10} {'Eligible':<10} {'Train.Rem':<10} {'S1':<6} {'S2':<6} {'S3+':<6} {'MissITPM':<10}")
-        print("-" * 98)
+        print(f"{'Cycle':<7} {'PMs':<7} {'Match':<7} {'Done':<7} {'Elig':<7} {'TrRem':<7} {'S1':<5} {'S2':<5} {'S3+':<5} {'ITPM':<6} {'Escal':<6}")
+        print("-" * 78)
         for s in all_summaries:
             if s:
                 cid = s.get("cycle_id", "?")
@@ -265,11 +265,12 @@ def main():
                 s2 = sum(r[1] for r in stages if r[0] == 2)
                 s3p = sum(r[1] for r in stages if r[0] >= 3)
                 train_rem = s.get('training_reminders_generated', s.get('reminders_generated', ''))
-                miss_itpm = s.get('missing_itpm_reminders_generated', '')
-                print(f"{cid:<8} {s.get('total_pms_in_eppm',''):<8} "
-                      f"{s.get('matched_pms',''):<10} {s.get('pms_training_complete',''):<10} "
-                      f"{s.get('pms_eligible_for_reminder',''):<10} {train_rem:<10} "
-                      f"{s1:<6} {s2:<6} {s3p:<6} {miss_itpm:<10}")
+                miss_itpm = s.get('missing_itpm_reminders_to_pm', s.get('missing_itpm_reminders_generated', ''))
+                escalations = s.get('missing_itpm_escalations_to_owner', '')
+                print(f"{cid:<7} {s.get('total_pms_in_eppm',''):<7} "
+                      f"{s.get('matched_pms',''):<7} {s.get('pms_training_complete',''):<7} "
+                      f"{s.get('pms_eligible_for_reminder',''):<7} {train_rem:<7} "
+                      f"{s1:<5} {s2:<5} {s3p:<5} {miss_itpm:<6} {escalations:<6}")
 
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")
@@ -278,13 +279,16 @@ def main():
     if all_summaries and all_summaries[-1]:
         last = all_summaries[-1]
         train_rem = last.get("training_reminders_generated", last.get("reminders_generated", 0))
-        itpm_rem = last.get("missing_itpm_reminders_generated", 0)
+        itpm_rem = last.get("missing_itpm_reminders_to_pm", last.get("missing_itpm_reminders_generated", 0))
+        esc_rem = last.get("missing_itpm_escalations_to_owner", 0)
         if train_rem == 0:
             print("Result: ALL PMs are fully certified!")
         else:
             print(f"Result: {train_rem} training reminders still pending in last cycle")
         if itpm_rem > 0:
-            print(f"  Note: {itpm_rem} projects still need IT PM assignment")
+            print(f"  Note: {itpm_rem} IT PM assignment reminders sent to PMs")
+        if esc_rem > 0:
+            print(f"  Note: {esc_rem} escalations sent to Project Owners")
     print(f"\nCheck the following locations:")
     print(f"  Output:   data/output/")
     print(f"  Archive:  data/archive/")

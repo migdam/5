@@ -1,0 +1,26 @@
+Subject: Escalation: IT Project Manager Assignment Still Pending for Your Project(s)
+Dear {{owner_name}},
+
+We are reaching out to you as the Project Owner because the following project(s) under your ownership still do not have an IT Project Manager assigned in ePPM, despite a previous reminder to the Project Manager.
+
+Affected project(s):
+{% for project in projects %}  - {{project.project_name}} ({{project.project_id}})
+{% endfor %}
+The Project Manager responsible is {{pm_name}} ({{pm_email}}).
+
+We previously asked {{pm_name}} to update the IT Project Manager field in ePPM, but the assignment has not yet been made. We would appreciate your help in coordinating with {{pm_name}} to ensure this is addressed promptly.
+
+Having an IT Project Manager assigned is important because:
+  - It ensures clear accountability for IT delivery on the project
+  - It enables us to track training compliance and certification readiness
+  - It supports accurate reporting and portfolio oversight
+  - It helps maintain alignment between project management and IT teams
+
+Could you please follow up with {{pm_name}} to ensure the IT PM field is updated in ePPM?
+
+If there are any challenges or questions about who should be assigned, please do not hesitate to reach out to us directly. We are happy to help.
+
+Thank you for your support.
+
+Best regards,
+Project Management Office

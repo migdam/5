@@ -71,6 +71,7 @@ templates:
   stage_3: "templates/reminder_stage_3.txt"
   default: "templates/reminder_stage_default.txt"
   missing_itpm: "templates/missing_itpm_reminder.txt"
+  missing_itpm_escalation: "templates/missing_itpm_escalation.txt"
   group_training: "templates/group_training_reminder.txt"
   group_missing_itpm: "templates/group_missing_itpm_reminder.txt"
 

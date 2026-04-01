@@ -133,8 +133,28 @@ def generate_reminders(eligible_pms, db, cycle_id, config):
     return reminders, skipped_no_email
 
 
+def _was_pm_previously_reminded_itpm(pm_email, db):
+    """Check if a PM was already sent a missing IT PM reminder in a previous cycle."""
+    from src.normalizer import normalize_email
+    norm_email = normalize_email(pm_email)
+    pm_id = db.get_project_manager_id(email=norm_email)
+    if not pm_id:
+        return False
+    # Stage 0 = missing IT PM reminder
+    row = db.conn.execute(
+        "SELECT COUNT(*) as cnt FROM communication_history WHERE project_manager_id = ? AND reminder_stage = 0",
+        (pm_id,),
+    ).fetchone()
+    return row["cnt"] > 0
+
+
 def generate_missing_itpm_reminders(missing_itpm_list, db, cycle_id, config):
-    """Generate reminders for PMs whose active projects lack an IT Project Manager.
+    """Generate reminders for missing IT PM assignments with escalation.
+
+    Logic:
+    - If PM was NOT previously reminded about missing IT PM → send reminder to PM
+    - If PM WAS already reminded in a previous cycle and IT PM is still empty →
+      escalate to Project Owner asking them to coordinate IT PM assignment
 
     Args:
         missing_itpm_list: List of dicts from find_projects_missing_it_pm().
@@ -143,61 +163,186 @@ def generate_missing_itpm_reminders(missing_itpm_list, db, cycle_id, config):
         config: Application configuration.
 
     Returns:
-        List of reminder dicts for missing IT PM assignments.
+        (pm_reminders, escalation_reminders) tuple of reminder lists.
     """
-    template_path = config["templates"].get("missing_itpm")
-    if not template_path:
-        logger.warning("No missing_itpm template configured; skipping IT PM reminders")
-        return []
+    from src.normalizer import normalize_name
 
-    template_content = load_template(template_path)
-    lines = template_content.strip().split("\n", 1)
-    subject_template = lines[0].replace("Subject: ", "").strip()
-    body_template = lines[1].strip() if len(lines) > 1 else ""
+    pm_template_path = config["templates"].get("missing_itpm")
+    escalation_template_path = config["templates"].get("missing_itpm_escalation")
 
-    reminders = []
+    pm_reminders = []
+    escalation_reminders = []
 
     for item in missing_itpm_list:
         pm_name = item["pm_name"]
         pm_email = item["pm_email"]
         projects = item["projects"]
 
-        subject = Template(subject_template).render(
-            pm_name=pm_name, projects=projects
-        )
-        body = Template(body_template).render(
-            pm_name=pm_name, projects=projects
-        )
-
         project_list_str = ", ".join(
             f"{p['project_name']} ({p['project_id']})" for p in projects
         )
 
-        reminder = {
-            "recipient_email": pm_email,
-            "subject": subject,
-            "body": body,
-            "stage": 0,  # Stage 0 = IT PM assignment reminder (not a training reminder)
-            "name": pm_name,
-            "missing_trainings": [],
-            "reminder_type": "missing_itpm",
-            "projects": projects,
-            "project_list": project_list_str,
-        }
+        previously_reminded = _was_pm_previously_reminded_itpm(pm_email, db)
 
-        # Store in DB as communication
-        from src.normalizer import normalize_name
-        norm_name = normalize_name(pm_name)
-        pm_id = db.upsert_project_manager(pm_name, pm_email, norm_name)
-        db.insert_communication(
-            cycle_id, pm_id, 0, subject, body, status="prepared"
-        )
+        if not previously_reminded:
+            # First time: send reminder to PM
+            if pm_template_path:
+                template_content = load_template(pm_template_path)
+                lines = template_content.strip().split("\n", 1)
+                subject_tpl = lines[0].replace("Subject: ", "").strip()
+                body_tpl = lines[1].strip() if len(lines) > 1 else ""
+                subject = Template(subject_tpl).render(pm_name=pm_name, projects=projects)
+                body = Template(body_tpl).render(pm_name=pm_name, projects=projects)
+            else:
+                subject = "Action Requested: Please Assign an IT Project Manager"
+                body = f"Dear {pm_name},\n\nPlease assign an IT PM for your projects.\n"
 
-        reminders.append(reminder)
-        logger.debug(
-            "Generated missing IT PM reminder for %s <%s> (%d projects)",
-            pm_name, pm_email, len(projects),
-        )
+            reminder = {
+                "recipient_email": pm_email,
+                "subject": subject,
+                "body": body,
+                "stage": 0,
+                "name": pm_name,
+                "missing_trainings": [],
+                "reminder_type": "missing_itpm",
+                "projects": projects,
+                "project_list": project_list_str,
+            }
 
-    logger.info("Generated %d missing IT PM assignment reminders", len(reminders))
-    return reminders
+            norm_name = normalize_name(pm_name)
+            pm_id = db.upsert_project_manager(pm_name, pm_email, norm_name)
+            db.insert_communication(cycle_id, pm_id, 0, subject, body, status="prepared")
+
+            pm_reminders.append(reminder)
+            logger.debug("Missing IT PM reminder (first) for %s <%s>", pm_name, pm_email)
+
+        else:
+            # Escalation: PM was already reminded, escalate to Project Owner
+            # Group projects by owner for this PM
+            owner_projects = {}
+            no_owner_projects = []
+
+            for proj in projects:
+                owner_name = proj.get("owner_name")
+                owner_email = proj.get("owner_email")
+
+                if owner_name and owner_email:
+                    key = owner_email.lower().strip()
+                    if key not in owner_projects:
+                        owner_projects[key] = {
+                            "owner_name": owner_name,
+                            "owner_email": owner_email,
+                            "projects": [],
+                            "pm_name": pm_name,
+                            "pm_email": pm_email,
+                        }
+                    owner_projects[key]["projects"].append(proj)
+                else:
+                    no_owner_projects.append(proj)
+
+            # Generate escalation for each owner
+            for owner_data in owner_projects.values():
+                owner_name = owner_data["owner_name"]
+                owner_email = owner_data["owner_email"]
+                owner_projs = owner_data["projects"]
+
+                owner_project_list_str = ", ".join(
+                    f"{p['project_name']} ({p['project_id']})" for p in owner_projs
+                )
+
+                if escalation_template_path:
+                    template_content = load_template(escalation_template_path)
+                    lines = template_content.strip().split("\n", 1)
+                    subject_tpl = lines[0].replace("Subject: ", "").strip()
+                    body_tpl = lines[1].strip() if len(lines) > 1 else ""
+                    subject = Template(subject_tpl).render(
+                        owner_name=owner_name, pm_name=pm_name,
+                        pm_email=pm_email, projects=owner_projs,
+                    )
+                    body = Template(body_tpl).render(
+                        owner_name=owner_name, pm_name=pm_name,
+                        pm_email=pm_email, projects=owner_projs,
+                    )
+                else:
+                    subject = f"Escalation: IT Project Manager Still Missing for Your Project(s)"
+                    body = (
+                        f"Dear {owner_name},\n\n"
+                        f"The Project Manager ({pm_name}) was previously asked to assign "
+                        f"an IT PM but has not yet done so.\n"
+                        f"Please coordinate with them.\n"
+                    )
+
+                escalation = {
+                    "recipient_email": owner_email,
+                    "subject": subject,
+                    "body": body,
+                    "stage": -1,  # Stage -1 = escalation to owner
+                    "name": owner_name,
+                    "missing_trainings": [],
+                    "reminder_type": "missing_itpm_escalation",
+                    "projects": owner_projs,
+                    "project_list": owner_project_list_str,
+                    "pm_name": pm_name,
+                    "pm_email": pm_email,
+                }
+
+                norm_name = normalize_name(owner_name)
+                owner_id = db.upsert_project_manager(owner_name, owner_email, norm_name)
+                db.insert_communication(
+                    cycle_id, owner_id, -1, subject, body, status="prepared"
+                )
+
+                escalation_reminders.append(escalation)
+                logger.debug(
+                    "Escalation to owner %s <%s> for PM %s (%d projects)",
+                    owner_name, owner_email, pm_name, len(owner_projs),
+                )
+
+            # Log data quality issue for projects with no owner
+            if no_owner_projects:
+                for proj in no_owner_projects:
+                    db.insert_data_quality_issue(
+                        cycle_id, "missing_owner_for_escalation",
+                        pm_name, pm_email,
+                        f"Project '{proj['project_name']}' ({proj['project_id']}) has no "
+                        f"Project Owner for IT PM escalation. PM was already reminded.",
+                    )
+
+            # Also re-remind the PM (they still need to act)
+            if pm_template_path:
+                template_content = load_template(pm_template_path)
+                lines = template_content.strip().split("\n", 1)
+                subject_tpl = lines[0].replace("Subject: ", "").strip()
+                body_tpl = lines[1].strip() if len(lines) > 1 else ""
+                subject = Template(subject_tpl).render(pm_name=pm_name, projects=projects)
+                body = Template(body_tpl).render(pm_name=pm_name, projects=projects)
+            else:
+                subject = "Action Requested: Please Assign an IT Project Manager"
+                body = f"Dear {pm_name},\n\nPlease assign an IT PM for your projects.\n"
+
+            reminder = {
+                "recipient_email": pm_email,
+                "subject": subject,
+                "body": body,
+                "stage": 0,
+                "name": pm_name,
+                "missing_trainings": [],
+                "reminder_type": "missing_itpm",
+                "projects": projects,
+                "project_list": project_list_str,
+            }
+
+            norm_name = normalize_name(pm_name)
+            pm_id = db.upsert_project_manager(pm_name, pm_email, norm_name)
+            db.insert_communication(cycle_id, pm_id, 0, subject, body, status="prepared")
+
+            pm_reminders.append(reminder)
+            logger.debug("Missing IT PM reminder (repeat + escalated) for %s <%s>", pm_name, pm_email)
+
+    logger.info(
+        "Missing IT PM: %d PM reminders, %d escalations to Project Owners",
+        len(pm_reminders),
+        len(escalation_reminders),
+    )
+
+    return pm_reminders, escalation_reminders

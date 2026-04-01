@@ -179,11 +179,21 @@ def find_projects_missing_it_pm(eppm_df, config):
         project_name = row.get("project_name", "")
         project_id = row.get("project_number", "")
 
+        # Get Project Owner for possible escalation
+        owner_name = row.get("project_owner")
+        owner_email = row.get("project_owner_email")
+        has_owner = (
+            owner_name and str(owner_name) not in ("", "None", "nan")
+            and owner_email and str(owner_email) not in ("", "None", "nan")
+        )
+
         missing_itpm_projects.append({
             "project_name": str(project_name) if project_name else "",
             "project_id": str(project_id) if project_id else "",
             "pm_name": str(pm_name),
             "pm_email": str(pm_email),
+            "owner_name": str(owner_name) if has_owner else None,
+            "owner_email": str(owner_email) if has_owner else None,
         })
 
     # Deduplicate: group projects by PM email
@@ -199,6 +209,8 @@ def find_projects_missing_it_pm(eppm_df, config):
         pm_projects[email]["projects"].append({
             "project_name": item["project_name"],
             "project_id": item["project_id"],
+            "owner_name": item["owner_name"],
+            "owner_email": item["owner_email"],
         })
 
     result = list(pm_projects.values())

@@ -229,7 +229,7 @@ def main():
             summary = run_cycle()
             all_summaries.append(summary)
 
-            reminders = summary.get("reminders_generated", 0) if summary else 0
+            reminders = summary.get("training_reminders_generated", summary.get("reminders_generated", 0)) if summary else 0
             if reminders == 0 and cycle_num > 1:
                 print(f"\n  *** ZERO reminders generated! All PMs are certified. ***")
                 print(f"  Simulation reached full certification at cycle {cycle_num}.")
@@ -247,8 +247,8 @@ def main():
     # Print compact progression table
     if all_summaries:
         print("\n--- Cycle Progression Table ---")
-        print(f"{'Cycle':<8} {'PMs':<8} {'Matched':<10} {'Complete':<10} {'Eligible':<10} {'Reminders':<10} {'S1':<6} {'S2':<6} {'S3+':<6}")
-        print("-" * 84)
+        print(f"{'Cycle':<8} {'PMs':<8} {'Matched':<10} {'Complete':<10} {'Eligible':<10} {'Train.Rem':<10} {'S1':<6} {'S2':<6} {'S3+':<6} {'MissITPM':<10}")
+        print("-" * 98)
         for s in all_summaries:
             if s:
                 cid = s.get("cycle_id", "?")
@@ -264,10 +264,12 @@ def main():
                 s1 = sum(r[1] for r in stages if r[0] == 1)
                 s2 = sum(r[1] for r in stages if r[0] == 2)
                 s3p = sum(r[1] for r in stages if r[0] >= 3)
+                train_rem = s.get('training_reminders_generated', s.get('reminders_generated', ''))
+                miss_itpm = s.get('missing_itpm_reminders_generated', '')
                 print(f"{cid:<8} {s.get('total_pms_in_eppm',''):<8} "
                       f"{s.get('matched_pms',''):<10} {s.get('pms_training_complete',''):<10} "
-                      f"{s.get('pms_eligible_for_reminder',''):<10} {s.get('reminders_generated',''):<10} "
-                      f"{s1:<6} {s2:<6} {s3p:<6}")
+                      f"{s.get('pms_eligible_for_reminder',''):<10} {train_rem:<10} "
+                      f"{s1:<6} {s2:<6} {s3p:<6} {miss_itpm:<10}")
 
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")
@@ -275,10 +277,14 @@ def main():
     print(f"\nTotal cycles run: {len(all_summaries)}")
     if all_summaries and all_summaries[-1]:
         last = all_summaries[-1]
-        if last.get("reminders_generated", 0) == 0:
+        train_rem = last.get("training_reminders_generated", last.get("reminders_generated", 0))
+        itpm_rem = last.get("missing_itpm_reminders_generated", 0)
+        if train_rem == 0:
             print("Result: ALL PMs are fully certified!")
         else:
-            print(f"Result: {last.get('reminders_generated', '?')} reminders still pending in last cycle")
+            print(f"Result: {train_rem} training reminders still pending in last cycle")
+        if itpm_rem > 0:
+            print(f"  Note: {itpm_rem} projects still need IT PM assignment")
     print(f"\nCheck the following locations:")
     print(f"  Output:   data/output/")
     print(f"  Archive:  data/archive/")

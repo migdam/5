@@ -1,0 +1,23 @@
+Subject: Action Requested: Please Assign an IT Project Manager for Your Project(s)
+Dear {{pm_name}},
+
+We hope this message finds you well.
+
+As part of our ongoing effort to ensure all active projects have the right roles assigned, we noticed that the following project(s) under your management do not yet have an IT Project Manager recorded in ePPM:
+
+{% for project in projects %}  - {{project.project_name}} ({{project.project_id}})
+{% endfor %}
+Having an IT Project Manager assigned is important because:
+  - It ensures clear accountability for IT delivery aspects of the project
+  - It enables us to track training compliance and certification readiness
+  - It supports better coordination between project management and IT teams
+  - It helps maintain accurate reporting and portfolio oversight
+
+Could you please update the IT Project Manager field in ePPM for the project(s) listed above at your earliest convenience?
+
+If you have any questions about who should be assigned or need assistance with ePPM, please do not hesitate to reach out.
+
+Thank you for your attention to this matter.
+
+Best regards,
+Project Management Office

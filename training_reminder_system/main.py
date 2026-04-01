@@ -18,8 +18,8 @@ from src.repository import Database
 from src.file_loader import load_eppm, load_training
 from src.normalizer import extract_unique_pms, normalize_name, normalize_email
 from src.matcher import match_people
-from src.evaluator import evaluate_training, get_eligible_pms
-from src.communication import generate_reminders
+from src.evaluator import evaluate_training, get_eligible_pms, find_projects_missing_it_pm
+from src.communication import generate_reminders, generate_missing_itpm_reminders
 from src.reporting import generate_outputs
 from src.archiver import archive_files
 
@@ -125,12 +125,20 @@ def run_cycle(config_path="config.yaml"):
             evaluated_pms, all_pms_df, config
         )
 
-        # --- Step 6: Generate reminders ---
-        logger.info("Step 6: Generating reminders")
+        # --- Step 6: Generate training reminders ---
+        logger.info("Step 6: Generating training reminders")
         reminders, skipped_no_email = generate_reminders(eligible_pms, db, cycle_id, config)
+
+        # --- Step 6b: Find projects missing IT PM and generate reminders ---
+        logger.info("Step 6b: Checking for active projects without IT PM")
+        missing_itpm_list = find_projects_missing_it_pm(eppm_df, config)
+        missing_itpm_reminders = generate_missing_itpm_reminders(
+            missing_itpm_list, db, cycle_id, config
+        )
 
         # --- Step 7: Generate output files ---
         logger.info("Step 7: Generating output files")
+        missing_itpm_project_count = sum(len(m["projects"]) for m in missing_itpm_list)
         summary_data = {
             "cycle_id": cycle_id,
             "total_pms_in_eppm": len(unique_pms),
@@ -140,19 +148,27 @@ def run_cycle(config_path="config.yaml"):
             "pms_training_complete": skipped_complete,
             "pms_inactive_projects": skipped_inactive,
             "pms_eligible_for_reminder": len(eligible_pms),
-            "reminders_generated": len(reminders),
+            "training_reminders_generated": len(reminders),
             "skipped_no_email": skipped_no_email,
             "unmatched_training_people": len(unmatched_training),
+            "projects_missing_it_pm": missing_itpm_project_count,
+            "missing_itpm_reminders_generated": len(missing_itpm_reminders),
         }
 
-        output_dir = generate_outputs(reminders, summary_data, config, cycle_id)
+        output_dir = generate_outputs(
+            reminders, summary_data, config, cycle_id,
+            missing_itpm_reminders=missing_itpm_reminders,
+        )
 
         # --- Step 8: Archive input files ---
         logger.info("Step 8: Archiving processed files")
         archive_files(input_files, config, cycle_id, db)
 
         # --- Complete cycle ---
-        notes = f"Generated {len(reminders)} reminders. Output: {output_dir}"
+        notes = (
+            f"Generated {len(reminders)} training reminders, "
+            f"{len(missing_itpm_reminders)} missing IT PM reminders. Output: {output_dir}"
+        )
         db.complete_cycle(cycle_id, "completed", notes)
 
         # Print summary

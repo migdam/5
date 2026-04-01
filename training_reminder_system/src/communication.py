@@ -131,3 +131,73 @@ def generate_reminders(eligible_pms, db, cycle_id, config):
     )
 
     return reminders, skipped_no_email
+
+
+def generate_missing_itpm_reminders(missing_itpm_list, db, cycle_id, config):
+    """Generate reminders for PMs whose active projects lack an IT Project Manager.
+
+    Args:
+        missing_itpm_list: List of dicts from find_projects_missing_it_pm().
+        db: Database instance.
+        cycle_id: Current cycle ID.
+        config: Application configuration.
+
+    Returns:
+        List of reminder dicts for missing IT PM assignments.
+    """
+    template_path = config["templates"].get("missing_itpm")
+    if not template_path:
+        logger.warning("No missing_itpm template configured; skipping IT PM reminders")
+        return []
+
+    template_content = load_template(template_path)
+    lines = template_content.strip().split("\n", 1)
+    subject_template = lines[0].replace("Subject: ", "").strip()
+    body_template = lines[1].strip() if len(lines) > 1 else ""
+
+    reminders = []
+
+    for item in missing_itpm_list:
+        pm_name = item["pm_name"]
+        pm_email = item["pm_email"]
+        projects = item["projects"]
+
+        subject = Template(subject_template).render(
+            pm_name=pm_name, projects=projects
+        )
+        body = Template(body_template).render(
+            pm_name=pm_name, projects=projects
+        )
+
+        project_list_str = ", ".join(
+            f"{p['project_name']} ({p['project_id']})" for p in projects
+        )
+
+        reminder = {
+            "recipient_email": pm_email,
+            "subject": subject,
+            "body": body,
+            "stage": 0,  # Stage 0 = IT PM assignment reminder (not a training reminder)
+            "name": pm_name,
+            "missing_trainings": [],
+            "reminder_type": "missing_itpm",
+            "projects": projects,
+            "project_list": project_list_str,
+        }
+
+        # Store in DB as communication
+        from src.normalizer import normalize_name
+        norm_name = normalize_name(pm_name)
+        pm_id = db.upsert_project_manager(pm_name, pm_email, norm_name)
+        db.insert_communication(
+            cycle_id, pm_id, 0, subject, body, status="prepared"
+        )
+
+        reminders.append(reminder)
+        logger.debug(
+            "Generated missing IT PM reminder for %s <%s> (%d projects)",
+            pm_name, pm_email, len(projects),
+        )
+
+    logger.info("Generated %d missing IT PM assignment reminders", len(reminders))
+    return reminders

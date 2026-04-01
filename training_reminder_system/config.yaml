@@ -70,6 +70,7 @@ templates:
   stage_2: "templates/reminder_stage_2.txt"
   stage_3: "templates/reminder_stage_3.txt"
   default: "templates/reminder_stage_default.txt"
+  missing_itpm: "templates/missing_itpm_reminder.txt"
 
 # Matching rules
 matching:

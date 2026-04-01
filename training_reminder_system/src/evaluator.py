@@ -133,3 +133,80 @@ def get_eligible_pms(evaluated_pms, all_pms_df, config):
     )
 
     return eligible, skipped_complete, skipped_inactive
+
+
+def find_projects_missing_it_pm(eppm_df, config):
+    """Find active projects that have no IT Project Manager assigned.
+
+    For each such project, the Project Manager should be reminded to
+    update the IT PM field in ePPM.
+
+    Args:
+        eppm_df: ePPM DataFrame with mapped column names.
+        config: Application configuration.
+
+    Returns:
+        List of dicts with project info and PM contact details.
+    """
+    active_statuses = [s.lower() for s in config["status_mapping"]["project_active_statuses"]]
+    missing_itpm_projects = []
+
+    for _, row in eppm_df.iterrows():
+        project_status = str(row.get("project_status", "")).lower().strip()
+        if project_status not in active_statuses:
+            continue
+
+        # Check if IT Project Manager is missing
+        it_pm = row.get("it_project_manager")
+        it_pm_email = row.get("it_project_manager_email")
+        has_it_pm = (
+            it_pm and str(it_pm) not in ("", "None", "nan")
+            and it_pm_email and str(it_pm_email) not in ("", "None", "nan")
+        )
+
+        if has_it_pm:
+            continue
+
+        # Get the Project Manager who should be notified
+        pm_name = row.get("project_manager")
+        pm_email = row.get("project_manager_email")
+
+        if not pm_name or str(pm_name) in ("", "None", "nan"):
+            continue
+        if not pm_email or str(pm_email) in ("", "None", "nan"):
+            continue
+
+        project_name = row.get("project_name", "")
+        project_id = row.get("project_number", "")
+
+        missing_itpm_projects.append({
+            "project_name": str(project_name) if project_name else "",
+            "project_id": str(project_id) if project_id else "",
+            "pm_name": str(pm_name),
+            "pm_email": str(pm_email),
+        })
+
+    # Deduplicate: group projects by PM email
+    pm_projects = {}
+    for item in missing_itpm_projects:
+        email = item["pm_email"].lower().strip()
+        if email not in pm_projects:
+            pm_projects[email] = {
+                "pm_name": item["pm_name"],
+                "pm_email": item["pm_email"],
+                "projects": [],
+            }
+        pm_projects[email]["projects"].append({
+            "project_name": item["project_name"],
+            "project_id": item["project_id"],
+        })
+
+    result = list(pm_projects.values())
+    total_projects = sum(len(p["projects"]) for p in result)
+    logger.info(
+        "Missing IT PM: %d active projects without IT PM, affecting %d PMs",
+        total_projects,
+        len(result),
+    )
+
+    return result

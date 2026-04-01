@@ -4,6 +4,79 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def extract_pm_compliance_issues(eppm_df):
+    """Extract compliance issues per IT PM from their assigned projects.
+
+    For each PM (by email), collects non-N/A compliance statuses and actions
+    from their projects to use as personalized motivators in training reminders.
+
+    Args:
+        eppm_df: ePPM DataFrame with mapped column names (including compliance columns).
+
+    Returns:
+        Dict mapping pm_email (lowercase) -> list of compliance issue dicts.
+        Each issue has: project_name, project_id, gate, compliance_status, action_needed.
+    """
+    from src.normalizer import normalize_email
+
+    gate_pairs = [
+        ("g0_compliance", "g0_action", "G0"),
+        ("g3_compliance", "g3_action", "G3"),
+        ("g5_compliance", "g5_action", "G5"),
+        ("g6_compliance", "g6_action", "G6"),
+    ]
+
+    pm_issues = {}
+
+    for _, row in eppm_df.iterrows():
+        project_name = str(row.get("project_name", ""))
+        project_id = str(row.get("project_number", ""))
+
+        # Collect issues for this project
+        project_issues = []
+        for comp_col, action_col, gate_label in gate_pairs:
+            comp = str(row.get(comp_col, "")).strip()
+            action = str(row.get(action_col, "")).strip()
+
+            if comp and comp not in ("", "N/A", "None", "nan", "Full compliance"):
+                project_issues.append({
+                    "project_name": project_name,
+                    "project_id": project_id,
+                    "gate": gate_label,
+                    "compliance_status": comp,
+                    "action_needed": action if action not in ("", "N/A", "None", "nan", "No action required") else "",
+                })
+
+        # Also check overall project compliance
+        overall = str(row.get("project_compliance", "")).strip()
+        if not project_issues and overall and overall not in ("", "N/A", "None", "nan", "Full compliance"):
+            project_issues.append({
+                "project_name": project_name,
+                "project_id": project_id,
+                "gate": "Overall",
+                "compliance_status": overall,
+                "action_needed": "",
+            })
+
+        if not project_issues:
+            continue
+
+        # Assign issues to IT PM and PM on this project
+        for email_col in ["it_project_manager_email", "project_manager_email"]:
+            email = row.get(email_col)
+            if email and str(email) not in ("", "None", "nan"):
+                key = normalize_email(str(email))
+                if key not in pm_issues:
+                    pm_issues[key] = []
+                pm_issues[key].extend(project_issues)
+
+    total_pms = len(pm_issues)
+    total_issues = sum(len(v) for v in pm_issues.values())
+    logger.info("Compliance issues: %d issues across %d PMs' projects", total_issues, total_pms)
+
+    return pm_issues
+
+
 def filter_ghost_projects(eppm_df, excluded_projects_df, config):
     """Filter out ghost projects from ePPM data before analysis.
 

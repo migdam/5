@@ -19,6 +19,20 @@ One course still requires your attention:
 
 This course typically takes about 2 hours and provides the core project management framework that underpins our delivery standards. It is designed to be practical and directly applicable to your current project work.
 {% endif %}
+{% if has_compliance_issues %}
+We want to highlight a practical reason this matters right now. Your project portfolio currently shows compliance areas that need attention:
+
+{% for issue in compliance_issues %}  - {{issue.project_name}} ({{issue.project_id}}): {{issue.gate}} — {{issue.compliance_status}}{% if issue.action_needed %} → {{issue.action_needed}}{% endif %}
+
+{% endfor %}
+These are exactly the types of situations the training prepares you for. It covers:
+  - How to prepare and manage Stakeholder Agreements for gate reviews
+  - Architecture and security review processes at G3 and other checkpoints
+  - Transition Plan preparation for G5 readiness
+  - Overall compliance with the Project Management Standard across all gates
+
+Completing the training now will give you the tools to resolve these items and deliver your projects to the highest standard.
+{% endif %}
 Completing this training is an important step, not just for compliance, but for your own professional effectiveness. Here is what you gain:
   - Stronger delivery capabilities recognized across the organization
   - Tools and frameworks that make your day-to-day project work more efficient

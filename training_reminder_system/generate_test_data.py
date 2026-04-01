@@ -80,6 +80,31 @@ GATE_SEQUENCE = ["G0", "G1", "G2", "G3", "G4", "G5", "G6", "Completed"]
 ARCHETYPE_WEIGHTS = [0.30, 0.35, 0.10, 0.15, 0.10]
 
 COMPLIANCE_VALUES = ["Full compliance", "Partially compliant", "Non-compliant"]
+# Realistic gate-specific action values from real ePPM data
+G0_ACTIONS = {
+    "Full compliance": "No action required",
+    "Partially compliant": "No action required",
+    "Non-compliant": "Create entry in LeanIX and assign Domain Architect",
+}
+G3_ACTIONS = {
+    "Full compliance": "No action required",
+    "Partially compliant": [
+        "Stakeholder Agreement needed",
+        "Stakeholder Agreement and G3 architecture review needed",
+        "Stakeholder Agreement and G3 security review needed",
+    ],
+    "Non-compliant": "Stakeholder Agreement, G3 architecture and security review needed",
+}
+G5_ACTIONS = {
+    "Full compliance": "No action required",
+    "Partially compliant": "Transition Plan needed",
+    "Non-compliant": "Transition Plan and G5 security review needed",
+}
+G6_ACTIONS = {
+    "Full compliance": "No action required",
+    "Partially compliant": "Closing Report needed",
+    "Non-compliant": "Closing Report needed",
+}
 COMPLIANCE_ACTIONS = {
     "Full compliance": "No action required",
     "Partially compliant": "Action plan in progress",
@@ -364,19 +389,20 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
         # G0 compliance if past G0
         if stage_idx >= 1 and rng.random() > 0.57:
             g0_comp = rng.choice(COMPLIANCE_VALUES)
-            g0_act = COMPLIANCE_ACTIONS[g0_comp]
+            g0_act = G0_ACTIONS[g0_comp]
         # G3 compliance if past G3
         if stage_idx >= 4 and rng.random() > 0.73:
             g3_comp = rng.choice(COMPLIANCE_VALUES)
-            g3_act = COMPLIANCE_ACTIONS[g3_comp]
+            act = G3_ACTIONS[g3_comp]
+            g3_act = rng.choice(act) if isinstance(act, list) else act
         # G5 compliance if past G5
         if stage_idx >= 6 and rng.random() > 0.96:
             g5_comp = rng.choice(COMPLIANCE_VALUES)
-            g5_act = COMPLIANCE_ACTIONS[g5_comp]
+            g5_act = G5_ACTIONS[g5_comp]
         # G6 compliance if past G6
         if stage_idx >= 7 and rng.random() > 0.98:
             g6_comp = rng.choice(COMPLIANCE_VALUES)
-            g6_act = COMPLIANCE_ACTIONS[g6_comp]
+            g6_act = G6_ACTIONS[g6_comp]
 
         proj_compliance = None
         if rng.random() > 0.476:

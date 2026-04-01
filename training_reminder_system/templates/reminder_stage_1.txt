@@ -21,6 +21,14 @@ You have one course to complete:
 
 This foundational course is designed to give you practical tools and frameworks that you can apply immediately in your project work. It covers the essentials of project delivery best practices.
 {% endif %}
+{% if has_compliance_issues %}
+We also wanted to share some context that makes this training particularly relevant for you right now. Some of your projects currently have compliance items that require attention:
+
+{% for issue in compliance_issues %}  - {{issue.project_name}} ({{issue.project_id}}): {{issue.gate}} — {{issue.compliance_status}}{% if issue.action_needed %} ({{issue.action_needed}}){% endif %}
+
+{% endfor %}
+The project management training directly covers how to navigate these kinds of situations — from ensuring proper stakeholder agreements and architecture reviews at gate checkpoints, to preparing transition plans and meeting compliance requirements. Completing the training will give you practical knowledge to address these items more effectively.
+{% endif %}
 These courses are designed to help you:
   - Build a stronger foundation in project delivery best practices
   - Gain practical tools and frameworks you can apply immediately

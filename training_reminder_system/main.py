@@ -18,7 +18,7 @@ from src.repository import Database
 from src.file_loader import load_eppm, load_training, load_role_changes, load_excluded_projects
 from src.normalizer import extract_unique_pms, normalize_name, normalize_email
 from src.matcher import match_people
-from src.evaluator import evaluate_training, get_eligible_pms, find_projects_missing_it_pm, find_role_changed_it_pms, filter_ghost_projects
+from src.evaluator import evaluate_training, get_eligible_pms, find_projects_missing_it_pm, find_role_changed_it_pms, filter_ghost_projects, extract_pm_compliance_issues
 from src.communication import generate_reminders, generate_missing_itpm_reminders, generate_role_changed_reminders
 from src.reporting import generate_outputs
 from src.archiver import archive_files
@@ -59,6 +59,10 @@ def run_cycle(config_path="config.yaml"):
         eppm_df, ghost_count, ghost_details = filter_ghost_projects(
             eppm_df, excluded_projects_df, config
         )
+
+        # --- Step 1d: Extract per-PM compliance issues ---
+        logger.info("Step 1d: Extracting compliance issues per PM")
+        pm_compliance_issues = extract_pm_compliance_issues(eppm_df)
 
         # --- Step 2: Extract unique PMs from ePPM ---
         logger.info("Step 2: Extracting unique PMs from ePPM")
@@ -138,7 +142,9 @@ def run_cycle(config_path="config.yaml"):
 
         # --- Step 6: Generate training reminders ---
         logger.info("Step 6: Generating training reminders")
-        reminders, skipped_no_email = generate_reminders(eligible_pms, db, cycle_id, config)
+        reminders, skipped_no_email = generate_reminders(
+            eligible_pms, db, cycle_id, config, pm_compliance_issues
+        )
 
         # --- Step 6b: Find projects missing IT PM and generate reminders ---
         logger.info("Step 6b: Checking for active projects without IT PM")

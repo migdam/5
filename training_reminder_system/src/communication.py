@@ -36,7 +36,7 @@ def determine_reminder_stage(pm_id, db):
     return next_stage
 
 
-def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_trainings=None):
+def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_trainings=None, compliance_issues=None):
     """Render a reminder email using the appropriate stage template.
 
     Passes structured training gap info to templates so they can
@@ -54,6 +54,8 @@ def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_
     template_path = get_template_for_stage(stage, config)
     if nice_to_have_trainings is None:
         nice_to_have_trainings = []
+    if compliance_issues is None:
+        compliance_issues = []
 
     template_content = load_template(template_path)
 
@@ -71,6 +73,15 @@ def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_
     missing_both = missing_fundamentals and missing_advanced
     completed_fundamentals = missing_advanced and not missing_fundamentals
 
+    # Deduplicate compliance issues by project
+    seen_projects = set()
+    unique_compliance = []
+    for issue in compliance_issues:
+        key = (issue["project_id"], issue["gate"])
+        if key not in seen_projects:
+            seen_projects.add(key)
+            unique_compliance.append(issue)
+
     template_vars = {
         "name": name,
         "missing_trainings": missing_str,
@@ -81,6 +92,8 @@ def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_
         "completed_fundamentals": completed_fundamentals,
         "nice_to_have_trainings": nice_to_have_trainings,
         "has_nice_to_have": len(nice_to_have_trainings) > 0,
+        "compliance_issues": unique_compliance,
+        "has_compliance_issues": len(unique_compliance) > 0,
     }
 
     # Render with Jinja2
@@ -97,7 +110,7 @@ def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_
     }
 
 
-def generate_reminders(eligible_pms, db, cycle_id, config):
+def generate_reminders(eligible_pms, db, cycle_id, config, pm_compliance_issues=None):
     """Generate reminder communications for all eligible PMs.
 
     Args:
@@ -105,10 +118,14 @@ def generate_reminders(eligible_pms, db, cycle_id, config):
         db: Database instance.
         cycle_id: Current cycle ID.
         config: Application configuration.
+        pm_compliance_issues: Dict mapping pm_email -> list of compliance issue dicts.
 
     Returns:
         List of reminder dicts ready for output.
     """
+    if pm_compliance_issues is None:
+        pm_compliance_issues = {}
+
     reminders = []
     skipped_no_email = 0
 
@@ -117,6 +134,9 @@ def generate_reminders(eligible_pms, db, cycle_id, config):
         email = pm.get("email")
         missing = pm["missing_trainings"]
         nice_to_have = pm.get("nice_to_have_trainings", [])
+        compliance_issues = pm_compliance_issues.get(
+            email.lower().strip() if email else "", []
+        )
 
         # Skip if no email
         if not email or str(email) in ("", "None", "nan"):
@@ -144,7 +164,7 @@ def generate_reminders(eligible_pms, db, cycle_id, config):
             stage = max_stage
 
         # Render reminder
-        reminder = render_reminder(name, email, missing, stage, config, nice_to_have)
+        reminder = render_reminder(name, email, missing, stage, config, nice_to_have, compliance_issues)
 
         # Store in database
         db.insert_communication(cycle_id, pm_id, stage, reminder["subject"], reminder["body"])

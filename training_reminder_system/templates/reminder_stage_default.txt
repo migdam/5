@@ -19,6 +19,14 @@ The following course remains to be completed:
 
 This foundational course can be completed in approximately 2 hours and will provide you with the core project management framework.
 {% endif %}
+{% if has_compliance_issues %}
+As a reminder, some of your projects currently have compliance items that the training would help you address:
+
+{% for issue in compliance_issues %}  - {{issue.project_name}} ({{issue.project_id}}): {{issue.gate}} — {{issue.compliance_status}}{% if issue.action_needed %} → {{issue.action_needed}}{% endif %}
+
+{% endfor %}
+The training provides practical guidance on meeting PM Standard requirements at each gate — from stakeholder agreements and architecture reviews to transition plans and closing reports.
+{% endif %}
 We understand that competing priorities can make it difficult to find time for training. However, this certification is an important part of our shared commitment to project delivery excellence.
 
 Completing this training will:

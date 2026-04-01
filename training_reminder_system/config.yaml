@@ -27,6 +27,14 @@ column_mapping:
     it_project_manager_email: "IT Project Manager Email"
     it_portfolio_manager: "IT Portfolio Manager"
     it_portfolio_manager_email: "IT Portfolio Manager Email"
+    g0_compliance: "G0 Compliance"
+    g0_action: "G0 Action"
+    g3_compliance: "G3 Compliance"
+    g3_action: "G3 Action"
+    g5_compliance: "G5 Compliance"
+    g5_action: "G5 Action"
+    g6_compliance: "G6 Compliance"
+    g6_action: "G6 Action"
     project_compliance: "Project Compliance"
 
   # Excluded projects file (manually maintained, ghost/cancelled projects)

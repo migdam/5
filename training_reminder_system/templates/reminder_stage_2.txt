@@ -19,6 +19,14 @@ The following course is still outstanding:
 
 This course is the starting point for our project management certification path. It covers essential frameworks and tools that colleagues consistently find valuable in their day-to-day project work.
 {% endif %}
+{% if has_compliance_issues %}
+This training is especially valuable for you right now. Looking at your current project portfolio, we can see some areas where the knowledge from these courses would directly help:
+
+{% for issue in compliance_issues %}  - {{issue.project_name}} ({{issue.project_id}}): {{issue.gate}} — {{issue.compliance_status}}{% if issue.action_needed %} → {{issue.action_needed}}{% endif %}
+
+{% endfor %}
+The training covers exactly these scenarios — how to prepare stakeholder agreements, navigate gate reviews, develop transition plans, and ensure your projects meet the PM Standard requirements at each checkpoint. Completing this training will equip you with the practical know-how to address these compliance gaps and prevent them in future projects.
+{% endif %}
 Colleagues who have completed these courses consistently share positive feedback. They report feeling more confident in their delivery approach, better equipped to navigate complex project situations, and more aligned with the standards that help our teams succeed together.
 
 Here is why completing this training matters:

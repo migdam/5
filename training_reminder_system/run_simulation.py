@@ -3,11 +3,13 @@
 
 This script:
 1. Resets the database for a fresh start
-2. For each cycle (1, 2, 3):
+2. Discovers all available cycles in data/simulation/
+3. For each cycle:
    - Copies simulation files to data/input/
    - Runs main.py pipeline
    - Prints summary
-3. Prints cross-cycle comparison showing reminder progression
+4. Runs until all PMs are certified (0 reminders generated)
+5. Prints cross-cycle comparison showing reminder progression
 """
 import os
 import sys
@@ -166,18 +168,39 @@ def print_cross_cycle_summary(config):
     conn.close()
 
 
+def discover_cycles():
+    """Find all available cycle directories in data/simulation/."""
+    sim_dir = os.path.join("data", "simulation")
+    if not os.path.exists(sim_dir):
+        return []
+    cycles = []
+    for name in sorted(os.listdir(sim_dir)):
+        if name.startswith("cycle_"):
+            try:
+                num = int(name.split("_")[1])
+                cycle_path = os.path.join(sim_dir, name)
+                has_eppm = any(f.endswith(".xlsx") and "ePPM" in f for f in os.listdir(cycle_path))
+                has_fuse = any(f.endswith(".xlsx") and "Fuse" in f for f in os.listdir(cycle_path))
+                if has_eppm and has_fuse:
+                    cycles.append(num)
+            except (ValueError, IndexError):
+                continue
+    return sorted(cycles)
+
+
 def main():
     print("=" * 70)
     print("TRAINING REMINDER SYSTEM - Multi-Cycle Simulation")
     print("=" * 70)
 
-    # Check simulation data exists
-    for cycle_num in [1, 2, 3]:
-        sim_dir = os.path.join("data", "simulation", f"cycle_{cycle_num}")
-        if not os.path.exists(sim_dir):
-            print(f"\nSimulation data not found in {sim_dir}")
-            print("Run 'python generate_test_data.py' first to create test data.")
-            sys.exit(1)
+    # Discover available cycles
+    available_cycles = discover_cycles()
+    if not available_cycles:
+        print("\nNo simulation data found in data/simulation/")
+        print("Run 'python generate_test_data.py' first to create test data.")
+        sys.exit(1)
+
+    print(f"\nDiscovered {len(available_cycles)} cycles: {available_cycles}")
 
     config = load_config()
 
@@ -192,11 +215,11 @@ def main():
             shutil.rmtree(path)
         os.makedirs(path, exist_ok=True)
 
-    # Run each cycle
+    # Run each cycle until all PMs certified or no more cycles
     all_summaries = []
-    for cycle_num in [1, 2, 3]:
+    for cycle_num in available_cycles:
         print(f"\n{'='*70}")
-        print(f"RUNNING CYCLE {cycle_num}")
+        print(f"RUNNING CYCLE {cycle_num} of {len(available_cycles)}")
         print(f"{'='*70}")
 
         clear_input_folder(config)
@@ -205,6 +228,13 @@ def main():
         try:
             summary = run_cycle()
             all_summaries.append(summary)
+
+            reminders = summary.get("reminders_generated", 0) if summary else 0
+            if reminders == 0 and cycle_num > 1:
+                print(f"\n  *** ZERO reminders generated! All PMs are certified. ***")
+                print(f"  Simulation reached full certification at cycle {cycle_num}.")
+                break
+
         except Exception as e:
             print(f"\n  ERROR in cycle {cycle_num}: {e}")
             import traceback
@@ -214,9 +244,41 @@ def main():
     # Print cross-cycle comparison
     print_cross_cycle_summary(config)
 
+    # Print compact progression table
+    if all_summaries:
+        print("\n--- Cycle Progression Table ---")
+        print(f"{'Cycle':<8} {'PMs':<8} {'Matched':<10} {'Complete':<10} {'Eligible':<10} {'Reminders':<10} {'S1':<6} {'S2':<6} {'S3+':<6}")
+        print("-" * 84)
+        for s in all_summaries:
+            if s:
+                cid = s.get("cycle_id", "?")
+                # Get stage breakdown from DB
+                db_path = config["paths"]["database"]
+                conn = sqlite3.connect(db_path)
+                stages = conn.execute("""
+                    SELECT reminder_stage, COUNT(*) as cnt
+                    FROM communication_history WHERE cycle_id = ?
+                    GROUP BY reminder_stage
+                """, (cid,)).fetchall()
+                conn.close()
+                s1 = sum(r[1] for r in stages if r[0] == 1)
+                s2 = sum(r[1] for r in stages if r[0] == 2)
+                s3p = sum(r[1] for r in stages if r[0] >= 3)
+                print(f"{cid:<8} {s.get('total_pms_in_eppm',''):<8} "
+                      f"{s.get('matched_pms',''):<10} {s.get('pms_training_complete',''):<10} "
+                      f"{s.get('pms_eligible_for_reminder',''):<10} {s.get('reminders_generated',''):<10} "
+                      f"{s1:<6} {s2:<6} {s3p:<6}")
+
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")
     print("=" * 70)
+    print(f"\nTotal cycles run: {len(all_summaries)}")
+    if all_summaries and all_summaries[-1]:
+        last = all_summaries[-1]
+        if last.get("reminders_generated", 0) == 0:
+            print("Result: ALL PMs are fully certified!")
+        else:
+            print(f"Result: {last.get('reminders_generated', '?')} reminders still pending in last cycle")
     print(f"\nCheck the following locations:")
     print(f"  Output:   data/output/")
     print(f"  Archive:  data/archive/")

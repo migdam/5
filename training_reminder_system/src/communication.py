@@ -39,6 +39,13 @@ def determine_reminder_stage(pm_id, db):
 def render_reminder(name, email, missing_trainings, stage, config):
     """Render a reminder email using the appropriate stage template.
 
+    Passes structured training gap info to templates so they can
+    differentiate messaging based on what's missing:
+    - missing_fundamentals: bool
+    - missing_advanced: bool
+    - missing_both: bool (both missing)
+    - completed_fundamentals: bool (fundamentals done, only advanced left)
+
     Returns:
         dict with recipient_email, subject, body, stage.
     """
@@ -52,13 +59,26 @@ def render_reminder(name, email, missing_trainings, stage, config):
 
     missing_str = ", ".join(missing_trainings)
 
+    # Build structured gap info for template branching
+    missing_lower = [m.lower() for m in missing_trainings]
+    missing_fundamentals = "fundamentals" in missing_lower
+    missing_advanced = "advanced" in missing_lower
+    missing_both = missing_fundamentals and missing_advanced
+    completed_fundamentals = missing_advanced and not missing_fundamentals
+
+    template_vars = {
+        "name": name,
+        "missing_trainings": missing_str,
+        "stage": stage,
+        "missing_fundamentals": missing_fundamentals,
+        "missing_advanced": missing_advanced,
+        "missing_both": missing_both,
+        "completed_fundamentals": completed_fundamentals,
+    }
+
     # Render with Jinja2
-    subject = Template(subject_template).render(
-        name=name, missing_trainings=missing_str, stage=stage
-    )
-    body = Template(body_template).render(
-        name=name, missing_trainings=missing_str, stage=stage
-    )
+    subject = Template(subject_template).render(**template_vars)
+    body = Template(body_template).render(**template_vars)
 
     return {
         "recipient_email": email,

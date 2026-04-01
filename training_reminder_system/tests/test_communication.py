@@ -33,7 +33,8 @@ def test_render_stage_1():
     assert result["recipient_email"] == "maya.collins@corp.example"
     assert result["stage"] == 1
     assert "Maya Collins" in result["body"]
-    assert "Fundamentals, Advanced" in result["body"]
+    assert "two courses to complete" in result["body"]
+    assert "Fundamentals" in result["body"]
     assert result["subject"]  # subject is not empty
 
 

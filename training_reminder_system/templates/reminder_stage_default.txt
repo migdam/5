@@ -2,10 +2,23 @@ Subject: Reminder (Stage {{stage}}): Your Project Management Training Is Still O
 Dear {{name}},
 
 This is a continued reminder regarding your outstanding project management training.
+{% if missing_both %}
+The following courses remain to be completed:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+  - Certification Test for Managing Projects for Business Success (Advanced)
 
-The following training remains to be completed:
-  {{missing_trainings}}
+We recommend starting with Fundamentals and then proceeding to Advanced. Both courses are designed to be completed in a few hours each.
+{% elif completed_fundamentals %}
+You have completed the Fundamentals course. One final step remains:
+  - Certification Test for Managing Projects for Business Success (Advanced)
 
+You are very close to being fully certified. The Advanced course builds on what you already know and should be straightforward to complete.
+{% elif missing_fundamentals %}
+The following course remains to be completed:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+
+This foundational course can be completed in approximately 2 hours and will provide you with the core project management framework.
+{% endif %}
 We understand that competing priorities can make it difficult to find time for training. However, this certification is an important part of our shared commitment to project delivery excellence.
 
 Completing this training will:

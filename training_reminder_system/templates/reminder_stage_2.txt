@@ -2,10 +2,23 @@ Subject: Your Project Management Training: A Great Opportunity to Strengthen You
 Dear {{name}},
 
 We are reaching out again to highlight the value of the project management training courses that are available to you.
-
+{% if missing_both %}
 The following training is still outstanding:
-  {{missing_trainings}}
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+  - Certification Test for Managing Projects for Business Success (Advanced)
 
+We recommend starting with the Fundamentals course. It provides a clear, structured approach to project delivery that many colleagues have found immediately useful. The Advanced course then takes your skills to the next level with deeper techniques and real-world scenarios.
+{% elif completed_fundamentals %}
+You have already completed the Fundamentals certification — well done! The remaining course is:
+  - Certification Test for Managing Projects for Business Success (Advanced)
+
+The Advanced course is the natural next step after Fundamentals. Colleagues who have completed it report feeling significantly more confident in navigating complex project situations. It builds on what you already know and adds practical depth.
+{% elif missing_fundamentals %}
+The following course is still outstanding:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+
+This course is the starting point for our project management certification path. It covers essential frameworks and tools that colleagues consistently find valuable in their day-to-day project work.
+{% endif %}
 Colleagues who have completed these courses consistently share positive feedback. They report feeling more confident in their delivery approach, better equipped to navigate complex project situations, and more aligned with the standards that help our teams succeed together.
 
 Here is why completing this training matters:

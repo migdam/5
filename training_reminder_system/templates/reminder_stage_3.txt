@@ -2,10 +2,23 @@ Subject: Action Needed: Complete Your Project Management Training
 Dear {{name}},
 
 We are writing to follow up on your outstanding project management training. We know your time is valuable, and we want to make sure this stays on your radar.
+{% if missing_both %}
+You still have two courses to complete:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+  - Certification Test for Managing Projects for Business Success (Advanced)
 
-The following training still requires your attention:
-  {{missing_trainings}}
+The Fundamentals course takes approximately 2 hours and provides the essential project management framework. We recommend completing it first, as the Advanced course builds directly on those concepts. Together, they form a complete certification path.
+{% elif completed_fundamentals %}
+You are almost there! You have completed Fundamentals, and only one course remains:
+  - Certification Test for Managing Projects for Business Success (Advanced)
 
+Since you already have the foundational knowledge from Fundamentals, the Advanced course will feel like a natural continuation. It typically takes about 2 hours and focuses on the deeper skills needed for complex project delivery.
+{% elif missing_fundamentals %}
+One course still requires your attention:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+
+This course typically takes about 2 hours and provides the core project management framework that underpins our delivery standards. It is designed to be practical and directly applicable to your current project work.
+{% endif %}
 Completing this training is an important step, not just for compliance, but for your own professional effectiveness. Here is what you gain:
   - Stronger delivery capabilities recognized across the organization
   - Tools and frameworks that make your day-to-day project work more efficient

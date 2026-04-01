@@ -4,10 +4,23 @@ Dear {{name}},
 I hope this message finds you well.
 
 As part of our ongoing commitment to supporting project managers in delivering excellent results, we wanted to let you know that there are training opportunities available to you that can strengthen your skills and confidence.
+{% if missing_both %}
+You currently have two courses to complete:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+  - Certification Test for Managing Projects for Business Success (Advanced)
 
-You currently have the following training still to complete:
-  {{missing_trainings}}
+We recommend starting with the Fundamentals course, which provides a solid foundation in project delivery best practices. Once completed, the Advanced course builds on those concepts with deeper, more practical insights.
+{% elif completed_fundamentals %}
+Great news — you have already completed the Fundamentals certification! The next step is:
+  - Certification Test for Managing Projects for Business Success (Advanced)
 
+The Advanced course builds directly on what you learned in Fundamentals. It covers more in-depth project management techniques and will strengthen your ability to handle complex delivery scenarios.
+{% elif missing_fundamentals %}
+You have one course to complete:
+  - Managing Projects for Business Success - Fundamentals - Certification Test
+
+This foundational course is designed to give you practical tools and frameworks that you can apply immediately in your project work. It covers the essentials of project delivery best practices.
+{% endif %}
 These courses are designed to help you:
   - Build a stronger foundation in project delivery best practices
   - Gain practical tools and frameworks you can apply immediately

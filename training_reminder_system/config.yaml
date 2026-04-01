@@ -115,6 +115,23 @@ matching:
 communication:
   max_reminder_stage: 0  # 0 means no limit; uses default template for stage > 3
 
+# Weekly communication schedule
+# Defines which day each message type should be sent after the Monday cycle run.
+# This organizes the output folder into day-specific subfolders.
+comms_schedule:
+  monday:
+    - run_cycle          # Load data, evaluate, generate all outputs
+  tuesday:
+    - training_reminders # Individual training reminders (all stages)
+  wednesday:
+    - missing_itpm       # Ask PMs to assign IT PM in ePPM
+    - role_changed_itpm  # Alert PMs about IT PMs who changed roles
+  thursday:
+    - escalations        # Escalate to Project Owners (IT PM still missing)
+  friday:
+    - group_emails       # Consolidated group emails (training + IT PM)
+    - nice_to_have       # Optional: suggest Fundamentals to Advanced-certified PMs
+
 # Output options
 output:
   generate_per_recipient_files: true

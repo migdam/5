@@ -76,6 +76,18 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
     if output_opts.get("generate_group_emails", False):
         _write_group_emails(output_dir, reminders, missing_itpm_reminders, config)
 
+    # 7. Weekly communication plan — organizes outputs by send day
+    comms_schedule = config.get("comms_schedule")
+    if comms_schedule:
+        _write_comms_plan(output_dir, comms_schedule, cycle_id, {
+            "training_reminders": reminders,
+            "missing_itpm": missing_itpm_reminders,
+            "escalations": escalation_reminders,
+            "role_changed_itpm": role_changed_reminders,
+            "group_emails": True if reminders or missing_itpm_reminders else False,
+            "nice_to_have": nice_to_have_pms,
+        })
+
     logger.info("Output files generated in %s", output_dir)
     return output_dir
 
@@ -334,6 +346,172 @@ def _write_nice_to_have(output_dir, nice_to_have_pms):
             })
 
     logger.info("Nice-to-have folder: %d PMs with optional training suggestions", len(nice_to_have_pms))
+
+
+def _write_comms_plan(output_dir, schedule, cycle_id, data):
+    """Generate a weekly communication plan with day-specific folders and a comms_plan.md.
+
+    Creates:
+    - comms_plan.md: overview of what to send on which day, with counts
+    - send_tuesday/, send_wednesday/, etc.: day-specific folders with
+      symlinks or copies of relevant output files for easy access
+    """
+    from datetime import datetime, timedelta
+    from shutil import copy2
+
+    # Calculate actual dates (cycle runs Monday)
+    today = datetime.now()
+    # Find next Monday (or today if Monday)
+    days_to_monday = (7 - today.weekday()) % 7
+    if days_to_monday == 0 and today.hour > 12:
+        days_to_monday = 7
+    monday = today + timedelta(days=days_to_monday)
+    if today.weekday() == 0:
+        monday = today  # Today is Monday
+
+    day_dates = {
+        "monday": monday,
+        "tuesday": monday + timedelta(days=1),
+        "wednesday": monday + timedelta(days=2),
+        "thursday": monday + timedelta(days=3),
+        "friday": monday + timedelta(days=4),
+    }
+
+    # Map message types to their output folders and counts
+    type_info = {
+        "training_reminders": {
+            "label": "Training Reminders (individual)",
+            "count": len(data.get("training_reminders", [])),
+            "source_folders": ["per_recipient", "stage_*"],
+            "source_files": ["reminders.csv"],
+        },
+        "missing_itpm": {
+            "label": "Missing IT PM Reminders (to PMs)",
+            "count": len(data.get("missing_itpm", [])),
+            "source_folders": ["missing_itpm"],
+        },
+        "role_changed_itpm": {
+            "label": "Role-Changed IT PM Alerts",
+            "count": len(data.get("role_changed_itpm", [])),
+            "source_folders": ["role_changed_itpm"],
+        },
+        "escalations": {
+            "label": "Escalations to Project Owners",
+            "count": len(data.get("escalations", [])),
+            "source_folders": ["escalations_to_owner"],
+        },
+        "group_emails": {
+            "label": "Group Emails (consolidated)",
+            "count": 1 if data.get("group_emails") else 0,
+            "source_folders": ["group_emails"],
+        },
+        "nice_to_have": {
+            "label": "Nice-to-Have Suggestions (optional)",
+            "count": len(data.get("nice_to_have", [])),
+            "source_folders": ["nice_to_have"],
+        },
+        "run_cycle": {
+            "label": "Run cycle (data processing)",
+            "count": 0,
+            "source_folders": [],
+        },
+    }
+
+    # Write comms_plan.md
+    plan_path = os.path.join(output_dir, "comms_plan.md")
+    with open(plan_path, "w", encoding="utf-8") as f:
+        f.write(f"# Weekly Communication Plan - Cycle {cycle_id}\n\n")
+        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
+        f.write("## Schedule\n\n")
+        f.write("| Day | Date | Action | Count | Folder |\n")
+        f.write("|-----|------|--------|-------|--------|\n")
+
+        total_comms = 0
+        for day in ["monday", "tuesday", "wednesday", "thursday", "friday"]:
+            actions = schedule.get(day, [])
+            date_str = day_dates[day].strftime("%Y-%m-%d")
+            if not actions:
+                f.write(f"| {day.capitalize()} | {date_str} | - | - | - |\n")
+                continue
+            for action in actions:
+                info = type_info.get(action, {"label": action, "count": 0, "source_folders": []})
+                count = info["count"]
+                total_comms += count
+                folders = ", ".join(info.get("source_folders", [])) or "-"
+                f.write(f"| {day.capitalize()} | {date_str} | {info['label']} | {count} | {folders} |\n")
+
+        f.write(f"\n**Total communications this cycle: {total_comms}**\n")
+
+        f.write("\n## Detailed Instructions\n\n")
+        for day in ["monday", "tuesday", "wednesday", "thursday", "friday"]:
+            actions = schedule.get(day, [])
+            date_str = day_dates[day].strftime("%Y-%m-%d (%A)")
+            f.write(f"### {day.capitalize()} — {date_str}\n\n")
+            if not actions:
+                f.write("No actions scheduled.\n\n")
+                continue
+            for action in actions:
+                info = type_info.get(action, {"label": action, "count": 0, "source_folders": []})
+                count = info["count"]
+                if action == "run_cycle":
+                    f.write("1. Place the latest ePPM and Fuse Excel files in `data/input/`\n")
+                    f.write("2. Run: `python main.py`\n")
+                    f.write("3. Review the summary report in this output folder\n\n")
+                elif count == 0:
+                    f.write(f"**{info['label']}**: Nothing to send this cycle.\n\n")
+                else:
+                    f.write(f"**{info['label']}** ({count} messages):\n\n")
+                    for folder in info.get("source_folders", []):
+                        send_dir = os.path.join(output_dir, f"send_{day}")
+                        f.write(f"- Find files in: `{folder}/`\n")
+                        f.write(f"  (also copied to: `send_{day}/`)\n")
+                    f.write(f"\nSteps:\n")
+                    f.write(f"1. Open the files in `send_{day}/` folder\n")
+                    f.write(f"2. For each file, copy the To:, Subject:, and Body into Outlook\n")
+                    f.write(f"3. Review and send\n\n")
+
+    # Create day-specific send folders with copies of relevant files
+    import glob as glob_mod
+    for day in ["tuesday", "wednesday", "thursday", "friday"]:
+        actions = schedule.get(day, [])
+        if not actions:
+            continue
+
+        day_dir = os.path.join(output_dir, f"send_{day}")
+        has_files = False
+
+        for action in actions:
+            info = type_info.get(action, {"label": action, "count": 0, "source_folders": []})
+            if info["count"] == 0:
+                continue
+
+            for folder_pattern in info.get("source_folders", []):
+                # Handle glob patterns like "stage_*"
+                matches = glob_mod.glob(os.path.join(output_dir, folder_pattern))
+                for source_dir in matches:
+                    if not os.path.isdir(source_dir):
+                        continue
+                    # Create corresponding subfolder in send_day
+                    subfolder_name = os.path.basename(source_dir)
+                    dest = os.path.join(day_dir, subfolder_name)
+                    os.makedirs(dest, exist_ok=True)
+                    for fname in os.listdir(source_dir):
+                        src_file = os.path.join(source_dir, fname)
+                        if os.path.isfile(src_file):
+                            copy2(src_file, os.path.join(dest, fname))
+                            has_files = True
+
+            for src_file in info.get("source_files", []):
+                src_path = os.path.join(output_dir, src_file)
+                if os.path.exists(src_path):
+                    os.makedirs(day_dir, exist_ok=True)
+                    copy2(src_path, os.path.join(day_dir, src_file))
+                    has_files = True
+
+        if has_files:
+            logger.info("Send folder created: send_%s/ (%s)", day, ", ".join(actions))
+
+    logger.info("Communication plan written: %s", plan_path)
 
 
 def _write_group_emails(output_dir, training_reminders, itpm_reminders, config):

@@ -270,16 +270,21 @@ def get_eligible_pms(evaluated_pms, all_pms_df, config):
         is_active = email in active_pm_emails or name in active_pm_names
 
         if not is_active:
+            pm["eligibility_status"] = "skipped_inactive"
             skipped_inactive += 1
             continue
 
         if pm["all_complete"]:
             # Check if they have nice-to-have trainings (e.g. Advanced done, Fundamentals optional)
             if pm.get("nice_to_have_trainings"):
+                pm["eligibility_status"] = "skipped_complete_nice_to_have"
                 nice_to_have_only.append(pm)
+            else:
+                pm["eligibility_status"] = "skipped_complete"
             skipped_complete += 1
             continue
 
+        pm["eligibility_status"] = "eligible"
         eligible.append(pm)
 
     logger.info(

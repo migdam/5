@@ -104,6 +104,64 @@ def test_upsert_project_manager():
     os.unlink(path)
 
 
+def test_training_snapshot_with_audit_fields():
+    """Verify new audit columns are stored and retrievable."""
+    db, path = make_db()
+    cycle_id = db.start_cycle()
+    pm_id = db.upsert_project_manager("Test PM", "test@corp.example", "test pm")
+
+    db.insert_training_snapshot(
+        cycle_id, pm_id, "completed", "incomplete", "2026-01-15", None, "incomplete", "fuse.xlsx",
+        match_method="email",
+        missing_trainings=["Advanced"],
+        nice_to_have_trainings=[],
+        compliance_issues_json=[
+            {"project_name": "Proj A", "project_id": "PRJ001",
+             "gate": "G3", "compliance_status": "Non-compliant",
+             "action_needed": "Stakeholder Agreement needed"},
+        ],
+        eligibility_status="eligible",
+    )
+
+    row = db.conn.execute(
+        "SELECT match_method, missing_trainings, nice_to_have_trainings, "
+        "compliance_issues_json, eligibility_status "
+        "FROM training_snapshots WHERE cycle_id = ? AND project_manager_id = ?",
+        (cycle_id, pm_id),
+    ).fetchone()
+
+    assert row["match_method"] == "email"
+    assert '"Advanced"' in row["missing_trainings"]
+    assert row["eligibility_status"] == "eligible"
+    assert "Non-compliant" in row["compliance_issues_json"]
+    assert "Stakeholder Agreement" in row["compliance_issues_json"]
+
+    db.close()
+    os.unlink(path)
+
+
+def test_training_snapshot_audit_fields_optional():
+    """Audit fields should be optional (backward compat with old callers)."""
+    db, path = make_db()
+    cycle_id = db.start_cycle()
+    pm_id = db.upsert_project_manager("Test", "test@corp.example", "test")
+
+    # Old-style call without audit fields — should work
+    db.insert_training_snapshot(
+        cycle_id, pm_id, "completed", "completed", None, None, "complete", "fuse.xlsx"
+    )
+
+    row = db.conn.execute(
+        "SELECT match_method, eligibility_status FROM training_snapshots WHERE cycle_id = ?",
+        (cycle_id,),
+    ).fetchone()
+    assert row["match_method"] is None
+    assert row["eligibility_status"] is None
+
+    db.close()
+    os.unlink(path)
+
+
 def test_reminder_stage_progression():
     db, path = make_db()
     c1 = db.start_cycle()

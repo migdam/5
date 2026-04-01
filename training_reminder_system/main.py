@@ -122,8 +122,15 @@ def run_cycle(config_path="config.yaml"):
         logger.info("Step 4: Evaluating training completion")
         evaluated_pms = evaluate_training(matched_pms, training_df, config)
 
-        # Store training snapshots
-        logger.info("Storing %d training snapshots in database", len(evaluated_pms))
+        # --- Step 5: Determine eligible PMs ---
+        logger.info("Step 5: Determining eligible PMs for reminders")
+        eligible_pms, skipped_complete, skipped_inactive, nice_to_have_pms = get_eligible_pms(
+            evaluated_pms, all_pms_df, config
+        )
+
+        # Store training snapshots with full audit trail
+        # (after eligibility so eligibility_status is set on each PM)
+        logger.info("Storing %d training snapshots with audit fields in database", len(evaluated_pms))
         training_filename = os.path.basename(training_path)
         for pm in evaluated_pms:
             pm_id = db.get_project_manager_id(
@@ -132,6 +139,8 @@ def run_cycle(config_path="config.yaml"):
             )
             if pm_id:
                 overall = "complete" if pm["all_complete"] else "incomplete"
+                pm_email_key = pm["email"].lower().strip() if pm.get("email") else ""
+                compliance = pm_compliance_issues.get(pm_email_key, [])
                 db.insert_training_snapshot(
                     cycle_id, pm_id,
                     "completed" if pm.get("fundamentals_completed") else "incomplete",
@@ -140,13 +149,12 @@ def run_cycle(config_path="config.yaml"):
                     str(pm.get("advanced_date", "")) if pm.get("advanced_date") else None,
                     overall,
                     training_filename,
+                    match_method=pm.get("match_method"),
+                    missing_trainings=pm.get("missing_trainings", []),
+                    nice_to_have_trainings=pm.get("nice_to_have_trainings", []),
+                    compliance_issues_json=compliance if compliance else None,
+                    eligibility_status=pm.get("eligibility_status", "unknown"),
                 )
-
-        # --- Step 5: Determine eligible PMs ---
-        logger.info("Step 5: Determining eligible PMs for reminders")
-        eligible_pms, skipped_complete, skipped_inactive, nice_to_have_pms = get_eligible_pms(
-            evaluated_pms, all_pms_df, config
-        )
 
         # --- Step 6: Generate training reminders ---
         logger.info("Step 6: Generating training reminders")

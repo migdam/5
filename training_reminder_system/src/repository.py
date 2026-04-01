@@ -1,4 +1,5 @@
 import sqlite3
+import json
 import logging
 from datetime import datetime
 
@@ -45,6 +46,11 @@ CREATE TABLE IF NOT EXISTS training_snapshots (
     overall_training_status TEXT,
     source_file TEXT,
     snapshot_timestamp TEXT NOT NULL,
+    match_method TEXT,
+    missing_trainings TEXT,
+    nice_to_have_trainings TEXT,
+    compliance_issues_json TEXT,
+    eligibility_status TEXT,
     FOREIGN KEY (cycle_id) REFERENCES cycles(id),
     FOREIGN KEY (project_manager_id) REFERENCES project_managers(id)
 );
@@ -97,7 +103,23 @@ class Database:
 
     def _create_schema(self):
         self.conn.executescript(SCHEMA_SQL)
+        self._upgrade_schema()
         self.conn.commit()
+
+    def _upgrade_schema(self):
+        """Add new columns to existing tables (safe for databases created before these columns)."""
+        new_columns = [
+            ("training_snapshots", "match_method", "TEXT"),
+            ("training_snapshots", "missing_trainings", "TEXT"),
+            ("training_snapshots", "nice_to_have_trainings", "TEXT"),
+            ("training_snapshots", "compliance_issues_json", "TEXT"),
+            ("training_snapshots", "eligibility_status", "TEXT"),
+        ]
+        for table, col, col_type in new_columns:
+            try:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+            except Exception:
+                pass  # Column already exists
 
     def close(self):
         self.conn.close()
@@ -205,17 +227,29 @@ class Database:
         self.conn.commit()
         logger.debug("Assignment snapshot: PM %d -> %s (%s) status=%s", pm_id, project_name, project_id, status)
 
-    def insert_training_snapshot(self, cycle_id, pm_id, fund_status, adv_status, fund_date, adv_date, overall, source_file):
+    def insert_training_snapshot(self, cycle_id, pm_id, fund_status, adv_status,
+                                fund_date, adv_date, overall, source_file,
+                                match_method=None, missing_trainings=None,
+                                nice_to_have_trainings=None, compliance_issues_json=None,
+                                eligibility_status=None):
         now = datetime.now().isoformat()
         self.conn.execute(
             """INSERT INTO training_snapshots
                (cycle_id, project_manager_id, fundamentals_status, advanced_status,
-                fundamentals_date, advanced_date, overall_training_status, source_file, snapshot_timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (cycle_id, pm_id, fund_status, adv_status, fund_date, adv_date, overall, source_file, now),
+                fundamentals_date, advanced_date, overall_training_status, source_file,
+                snapshot_timestamp, match_method, missing_trainings, nice_to_have_trainings,
+                compliance_issues_json, eligibility_status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (cycle_id, pm_id, fund_status, adv_status, fund_date, adv_date, overall,
+             source_file, now, match_method,
+             json.dumps(missing_trainings) if missing_trainings is not None else None,
+             json.dumps(nice_to_have_trainings) if nice_to_have_trainings is not None else None,
+             json.dumps(compliance_issues_json) if compliance_issues_json is not None else None,
+             eligibility_status),
         )
         self.conn.commit()
-        logger.debug("Training snapshot: PM %d -> fund=%s adv=%s overall=%s", pm_id, fund_status, adv_status, overall)
+        logger.debug("Training snapshot: PM %d -> fund=%s adv=%s overall=%s match=%s eligible=%s",
+                      pm_id, fund_status, adv_status, overall, match_method, eligibility_status)
 
     # --- Communication history ---
 

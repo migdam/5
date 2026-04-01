@@ -8,9 +8,11 @@ logger = logging.getLogger(__name__)
 def load_template(template_path):
     """Load a Jinja2 template from a file."""
     if not os.path.exists(template_path):
+        logger.error("Template not found: %s", template_path)
         raise FileNotFoundError(f"Template not found: {template_path}")
     with open(template_path, "r", encoding="utf-8") as f:
         content = f.read()
+    logger.debug("Loaded template: %s (%d chars)", template_path, len(content))
     return content
 
 
@@ -31,8 +33,7 @@ def determine_reminder_stage(pm_id, db):
     """Determine the next reminder stage for a PM based on communication history."""
     last_stage = db.get_last_reminder_stage(pm_id)
     next_stage = last_stage + 1
-
-    max_stage = db.conn.execute("SELECT 1").fetchone()  # just a check
+    logger.debug("PM %d: last stage=%d, next stage=%d", pm_id, last_stage, next_stage)
     return next_stage
 
 

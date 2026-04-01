@@ -35,5 +35,14 @@ def load_config(config_path="config.yaml"):
     if db_path:
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
 
-    logger.info("Configuration loaded successfully from %s", config_path)
+    logger.info("Configuration loaded from %s", config_path)
+    logger.info("  Input: %s, Output: %s, Archive: %s",
+                config["paths"].get("input_folder"), config["paths"].get("output_folder"),
+                config["paths"].get("archive_folder"))
+    logger.info("  Database: %s", config["paths"].get("database"))
+    logger.info("  ePPM columns mapped: %d, Fuse columns mapped: %d",
+                len(config["column_mapping"].get("eppm", {})),
+                len(config["column_mapping"].get("fuse", {})))
+    logger.info("  Required training: %s",
+                ", ".join(config.get("required_training", {}).keys()))
     return config

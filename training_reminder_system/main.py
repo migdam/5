@@ -78,6 +78,7 @@ def run_cycle(config_path="config.yaml"):
             return
 
         # Store PMs and assignment snapshots in database
+        logger.info("Storing %d PMs and %d assignment records in database", len(unique_pms), len(all_pms_df))
         eppm_filename = os.path.basename(eppm_path)
         for _, pm_row in unique_pms.iterrows():
             pm_id = db.upsert_project_manager(
@@ -87,6 +88,7 @@ def run_cycle(config_path="config.yaml"):
             )
 
         # Store assignment snapshots
+        snapshot_count = 0
         for _, row in all_pms_df.iterrows():
             pm_id = db.get_project_manager_id(
                 email=normalize_email(row["email"]) if row.get("email") else None,
@@ -100,6 +102,8 @@ def run_cycle(config_path="config.yaml"):
                     row.get("project_status", ""),
                     eppm_filename,
                 )
+                snapshot_count += 1
+        logger.info("Stored %d assignment snapshots", snapshot_count)
 
         # --- Step 3: Match PMs against training records ---
         logger.info("Step 3: Matching PMs against training records")
@@ -119,6 +123,7 @@ def run_cycle(config_path="config.yaml"):
         evaluated_pms = evaluate_training(matched_pms, training_df, config)
 
         # Store training snapshots
+        logger.info("Storing %d training snapshots in database", len(evaluated_pms))
         training_filename = os.path.basename(training_path)
         for pm in evaluated_pms:
             pm_id = db.get_project_manager_id(

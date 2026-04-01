@@ -455,6 +455,7 @@ def _write_group_emails(output_dir, training_reminders, itpm_reminders, config):
 
 def _write_group_file(filepath, emails, subject, body, title, recipient_count):
     """Write a group email file ready for copy-paste."""
+    logger.debug("Writing group file: %s (%d recipients)", filepath, recipient_count)
     email_list = "; ".join(emails)
     with open(filepath, "w", encoding="utf-8") as f:
         f.write("=" * 70 + "\n")
@@ -472,6 +473,7 @@ def _write_group_file(filepath, emails, subject, body, title, recipient_count):
 
 def _write_email_list(filepath, emails):
     """Write a plain list of emails, one per line and semicolon-separated."""
+    logger.debug("Writing email list: %s (%d emails)", filepath, len(emails))
     with open(filepath, "w", encoding="utf-8") as f:
         f.write("# Email list - copy the line below into the To: field\n")
         f.write("# Semicolon-separated (Outlook format):\n")
@@ -511,6 +513,7 @@ def _build_default_group_itpm_body(recipients):
 
 def _write_reminder_file(filepath, reminder):
     """Write a single reminder to a text file, formatted for easy copy-paste."""
+    logger.debug("Writing reminder file: %s (stage %d)", filepath, reminder.get("stage", 0))
     with open(filepath, "w", encoding="utf-8") as f:
         f.write("=" * 60 + "\n")
         f.write("TRAINING REMINDER - READY TO SEND\n")

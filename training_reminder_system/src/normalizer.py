@@ -28,6 +28,7 @@ def normalize_dataframe(df, name_col, email_col):
     df = df.copy()
     df["normalized_name"] = df[name_col].apply(normalize_name)
     df["normalized_email"] = df[email_col].apply(normalize_email)
+    logger.debug("Normalized %d records (name_col=%s, email_col=%s)", len(df), name_col, email_col)
     return df
 
 

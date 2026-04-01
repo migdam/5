@@ -203,6 +203,7 @@ class Database:
             (cycle_id, pm_id, project_name, project_id, status, source_file, now),
         )
         self.conn.commit()
+        logger.debug("Assignment snapshot: PM %d -> %s (%s) status=%s", pm_id, project_name, project_id, status)
 
     def insert_training_snapshot(self, cycle_id, pm_id, fund_status, adv_status, fund_date, adv_date, overall, source_file):
         now = datetime.now().isoformat()
@@ -214,6 +215,7 @@ class Database:
             (cycle_id, pm_id, fund_status, adv_status, fund_date, adv_date, overall, source_file, now),
         )
         self.conn.commit()
+        logger.debug("Training snapshot: PM %d -> fund=%s adv=%s overall=%s", pm_id, fund_status, adv_status, overall)
 
     # --- Communication history ---
 
@@ -235,6 +237,7 @@ class Database:
             (cycle_id, pm_id, stage, subject, body, status, now),
         )
         self.conn.commit()
+        logger.debug("Communication recorded: PM %d, stage %d, status=%s", pm_id, stage, status)
 
     # --- Data quality ---
 
@@ -247,6 +250,7 @@ class Database:
             (cycle_id, issue_type, person_name, email, details, now),
         )
         self.conn.commit()
+        logger.debug("Data quality issue: type=%s, person=%s, email=%s", issue_type, person_name, email)
 
     # --- Processed files ---
 
@@ -259,6 +263,7 @@ class Database:
             (cycle_id, file_type, original, archived, archive_path, now, checksum),
         )
         self.conn.commit()
+        logger.info("Processed file recorded: %s (%s) -> %s", original, file_type, archive_path)
 
     # --- Query helpers ---
 

@@ -22,6 +22,14 @@ Here are some ways we can support you:
   - **Technical access**: If you are having any issues accessing the learning platform, we can resolve them quickly
   - **Quick overview**: If you would like a brief walkthrough of what the course covers before you start, we are happy to provide one
 
+{% if has_compliance_issues %}
+We also want to highlight that the training is particularly relevant for your current projects. Some of them have compliance items that the course material directly addresses:
+
+{% for issue in compliance_issues %}  - {{issue.project_name}} ({{issue.project_id}}): {{issue.gate}} — {{issue.compliance_status}}{% if issue.action_needed %} → {{issue.action_needed}}{% endif %}
+
+{% endfor %}
+Completing the training will help you address these items with more confidence and the right frameworks.
+{% endif %}
 The courses are designed to be completed in approximately 2 hours each, and they can be paused and resumed at your convenience.
 
 Your growth matters to us, and we want to remove any barriers that might be in the way. Please reply to this message or reach out to the Project Management Office directly.

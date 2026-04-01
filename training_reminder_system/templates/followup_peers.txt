@@ -23,7 +23,14 @@ Here is what certified colleagues are saying:
   - "The gate review frameworks helped me prepare for G3 much more effectively"
   - "I wish I had done this sooner — the stakeholder management tools saved me hours"
   - "The compliance sections made it much clearer what is expected at each checkpoint"
+{% if has_compliance_issues %}
+These testimonials are especially relevant for you — your current projects have compliance items where the training would make a real difference:
 
+{% for issue in compliance_issues %}  - {{issue.project_name}} ({{issue.project_id}}): {{issue.gate}} — {{issue.compliance_status}}{% if issue.action_needed %} → {{issue.action_needed}}{% endif %}
+
+{% endfor %}
+Colleagues in similar situations found that the training gave them the confidence and frameworks to resolve these kinds of issues much more efficiently.
+{% endif %}
 We would love to see you join them. Each course takes approximately 2 hours, and you can complete them at your own pace.
 
 If you have any questions or need help getting started, please do not hesitate to reach out.

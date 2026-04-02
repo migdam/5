@@ -32,6 +32,7 @@ import os
 import logging
 from jinja2 import Template
 from src.utils import get_timestamp
+from src.excel_reports import write_cycle_dashboard, write_cross_cycle_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,23 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
             "group_emails": True if reminders or missing_itpm_reminders else False,
             "nice_to_have": nice_to_have_pms,
         })
+
+    # 8. Color-coded cycle dashboard Excel
+    write_cycle_dashboard(
+        output_dir, reminders,
+        missing_itpm_reminders=missing_itpm_reminders,
+        escalation_reminders=escalation_reminders,
+        role_changed_reminders=role_changed_reminders,
+        nice_to_have_pms=nice_to_have_pms,
+        congratulations=congratulations,
+        summary_data=summary_data,
+        cycle_id=cycle_id,
+    )
+
+    # 9. Cross-cycle tracker Excel (reads full DB history)
+    db_path = config["paths"].get("database", "")
+    if db_path:
+        write_cross_cycle_tracker(output_dir, db_path)
 
     logger.info("Output files generated in %s", output_dir)
     return output_dir

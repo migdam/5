@@ -98,7 +98,9 @@ st.sidebar.title("Training Reminder System")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Dashboard", "Run Cycle", "Reminders", "Templates", "Calendar", "IT PM Track Record", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
+    ["Dashboard", "Run Cycle", "Reminders", "Templates", "Calendar", "IT PM Track Record",
+     "Cycle Comparison", "Cycle History", "Communications", "Data Quality",
+     "Settings", "Simulation", "Log Viewer", "Archive Browser", "Database Explorer"],
     index=0,
 )
 
@@ -1589,6 +1591,223 @@ elif page == "IT PM Track Record":
 
 
 # ===========================================================================
+# PAGE: Cycle Comparison
+# ===========================================================================
+elif page == "Cycle Comparison":
+    st.title("Cycle Comparison")
+    st.markdown("Compare two cycles side-by-side to see what changed between them.")
+
+    config = get_config()
+    conn = get_db_connection(config)
+
+    if conn is None:
+        st.info("No database found. Run a processing cycle first.")
+    else:
+        try:
+            cycles_df = pd.read_sql_query(
+                "SELECT id, cycle_timestamp, run_status FROM cycles WHERE run_status = 'completed' ORDER BY id",
+                conn,
+            )
+            if len(cycles_df) < 2:
+                st.info("Need at least 2 completed cycles to compare. Run more cycles first.")
+            else:
+                cycle_ids = cycles_df["id"].tolist()
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    cycle_a = st.selectbox(
+                        "Cycle A (earlier)",
+                        cycle_ids[:-1],
+                        index=max(0, len(cycle_ids) - 2),
+                        format_func=lambda x: f"Cycle {x} — {cycles_df[cycles_df['id']==x]['cycle_timestamp'].values[0][:10]}",
+                    )
+                with col_b:
+                    cycle_b = st.selectbox(
+                        "Cycle B (later)",
+                        [c for c in cycle_ids if c > cycle_a] if cycle_a else cycle_ids[1:],
+                        format_func=lambda x: f"Cycle {x} — {cycles_df[cycles_df['id']==x]['cycle_timestamp'].values[0][:10]}",
+                    )
+
+                if cycle_a and cycle_b:
+                    # --- Training status comparison ---
+                    st.header("Training Status Changes")
+
+                    train_a = pd.read_sql_query(
+                        """SELECT pm.id as pm_id, pm.full_name, pm.email,
+                                  t.overall_training_status, t.eligibility_status,
+                                  t.fundamentals_status, t.advanced_status
+                           FROM training_snapshots t
+                           JOIN project_managers pm ON t.project_manager_id = pm.id
+                           WHERE t.cycle_id = ?""",
+                        conn, params=(int(cycle_a),),
+                    )
+                    train_b = pd.read_sql_query(
+                        """SELECT pm.id as pm_id, pm.full_name, pm.email,
+                                  t.overall_training_status, t.eligibility_status,
+                                  t.fundamentals_status, t.advanced_status
+                           FROM training_snapshots t
+                           JOIN project_managers pm ON t.project_manager_id = pm.id
+                           WHERE t.cycle_id = ?""",
+                        conn, params=(int(cycle_b),),
+                    )
+
+                    # Merge on pm_id
+                    if not train_a.empty and not train_b.empty:
+                        merged = train_a.merge(
+                            train_b, on=["pm_id", "full_name", "email"],
+                            suffixes=(f"_c{cycle_a}", f"_c{cycle_b}"),
+                            how="outer", indicator=True,
+                        )
+
+                        # Newly certified
+                        newly_certified = merged[
+                            (merged.get(f"overall_training_status_c{cycle_a}") != "complete")
+                            & (merged.get(f"overall_training_status_c{cycle_b}") == "complete")
+                        ]
+                        # New PMs (only in cycle B)
+                        new_pms = merged[merged["_merge"] == "right_only"]
+                        # Left PMs (only in cycle A)
+                        left_pms = merged[merged["_merge"] == "left_only"]
+                        # Status changed
+                        both = merged[merged["_merge"] == "both"]
+                        status_changed = both[
+                            both[f"overall_training_status_c{cycle_a}"] != both[f"overall_training_status_c{cycle_b}"]
+                        ]
+
+                        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+                        kpi1.metric("Newly Certified", len(newly_certified))
+                        kpi2.metric("New PMs", len(new_pms))
+                        kpi3.metric("PMs No Longer Tracked", len(left_pms))
+                        kpi4.metric("Status Changed", len(status_changed))
+
+                        if not newly_certified.empty:
+                            with st.expander(f"Newly Certified ({len(newly_certified)})"):
+                                st.dataframe(
+                                    newly_certified[["full_name", "email"]],
+                                    use_container_width=True, hide_index=True,
+                                )
+
+                        if not new_pms.empty:
+                            with st.expander(f"New PMs in Cycle {cycle_b} ({len(new_pms)})"):
+                                display_cols = ["full_name", "email"]
+                                avail = [c for c in display_cols if c in new_pms.columns]
+                                st.dataframe(new_pms[avail], use_container_width=True, hide_index=True)
+
+                        if not status_changed.empty:
+                            with st.expander(f"Training Status Changed ({len(status_changed)})"):
+                                show_cols = ["full_name", "email",
+                                             f"overall_training_status_c{cycle_a}",
+                                             f"overall_training_status_c{cycle_b}"]
+                                avail = [c for c in show_cols if c in status_changed.columns]
+                                st.dataframe(status_changed[avail], use_container_width=True, hide_index=True)
+
+                    # --- Communication comparison ---
+                    st.header("Communication Changes")
+
+                    comms_a = pd.read_sql_query(
+                        """SELECT pm.full_name, pm.email, ch.reminder_stage
+                           FROM communication_history ch
+                           JOIN project_managers pm ON ch.project_manager_id = pm.id
+                           WHERE ch.cycle_id = ?""",
+                        conn, params=(int(cycle_a),),
+                    )
+                    comms_b = pd.read_sql_query(
+                        """SELECT pm.full_name, pm.email, ch.reminder_stage
+                           FROM communication_history ch
+                           JOIN project_managers pm ON ch.project_manager_id = pm.id
+                           WHERE ch.cycle_id = ?""",
+                        conn, params=(int(cycle_b),),
+                    )
+
+                    STAGE_LABELS = {0: "Missing IT PM", -1: "Escalation", -2: "Role Change", 99: "Congratulations"}
+
+                    col_ca, col_cb = st.columns(2)
+                    with col_ca:
+                        st.subheader(f"Cycle {cycle_a}")
+                        if comms_a.empty:
+                            st.write("No communications")
+                        else:
+                            stage_counts_a = comms_a["reminder_stage"].value_counts().sort_index()
+                            for s, c in stage_counts_a.items():
+                                st.write(f"- {STAGE_LABELS.get(s, f'Stage {s}')}: **{c}**")
+                    with col_cb:
+                        st.subheader(f"Cycle {cycle_b}")
+                        if comms_b.empty:
+                            st.write("No communications")
+                        else:
+                            stage_counts_b = comms_b["reminder_stage"].value_counts().sort_index()
+                            for s, c in stage_counts_b.items():
+                                st.write(f"- {STAGE_LABELS.get(s, f'Stage {s}')}: **{c}**")
+
+                    # --- Stage progression between cycles ---
+                    if not comms_a.empty and not comms_b.empty:
+                        st.header("Stage Progression")
+                        st.markdown("PMs whose reminder stage changed between cycles.")
+                        stages_a = comms_a.groupby("email")["reminder_stage"].max().reset_index()
+                        stages_a.columns = ["email", f"stage_c{cycle_a}"]
+                        stages_b = comms_b.groupby("email")["reminder_stage"].max().reset_index()
+                        stages_b.columns = ["email", f"stage_c{cycle_b}"]
+                        stage_merged = stages_a.merge(stages_b, on="email", how="inner")
+                        progressed = stage_merged[
+                            stage_merged[f"stage_c{cycle_a}"] != stage_merged[f"stage_c{cycle_b}"]
+                        ]
+                        if progressed.empty:
+                            st.info("No stage changes between these cycles.")
+                        else:
+                            # Add names
+                            name_map = pd.concat([comms_a, comms_b])[["full_name", "email"]].drop_duplicates(subset=["email"])
+                            progressed = progressed.merge(name_map, on="email", how="left")
+                            progressed[f"stage_c{cycle_a}"] = progressed[f"stage_c{cycle_a}"].apply(
+                                lambda s: STAGE_LABELS.get(s, f"Stage {s}")
+                            )
+                            progressed[f"stage_c{cycle_b}"] = progressed[f"stage_c{cycle_b}"].apply(
+                                lambda s: STAGE_LABELS.get(s, f"Stage {s}")
+                            )
+                            st.dataframe(
+                                progressed[["full_name", "email", f"stage_c{cycle_a}", f"stage_c{cycle_b}"]],
+                                use_container_width=True, hide_index=True,
+                            )
+
+                    # --- Assignment comparison ---
+                    st.header("Project Assignment Changes")
+                    assign_a = set(pd.read_sql_query(
+                        "SELECT DISTINCT project_id FROM assignment_snapshots WHERE cycle_id = ?",
+                        conn, params=(int(cycle_a),),
+                    )["project_id"].tolist())
+                    assign_b = set(pd.read_sql_query(
+                        "SELECT DISTINCT project_id FROM assignment_snapshots WHERE cycle_id = ?",
+                        conn, params=(int(cycle_b),),
+                    )["project_id"].tolist())
+
+                    new_projects = assign_b - assign_a
+                    removed_projects = assign_a - assign_b
+                    common_projects = assign_a & assign_b
+
+                    kp1, kp2, kp3 = st.columns(3)
+                    kp1.metric("New Projects", len(new_projects))
+                    kp2.metric("Removed Projects", len(removed_projects))
+                    kp3.metric("Continuing Projects", len(common_projects))
+
+                    if new_projects:
+                        with st.expander(f"New Projects in Cycle {cycle_b} ({len(new_projects)})"):
+                            new_p_df = pd.read_sql_query(
+                                f"SELECT DISTINCT project_id, project_name FROM assignment_snapshots WHERE cycle_id = ? AND project_id IN ({','.join('?' * len(new_projects))})",
+                                conn, params=[int(cycle_b)] + list(new_projects),
+                            )
+                            st.dataframe(new_p_df, use_container_width=True, hide_index=True)
+
+                    if removed_projects:
+                        with st.expander(f"Removed Projects from Cycle {cycle_a} ({len(removed_projects)})"):
+                            rem_p_df = pd.read_sql_query(
+                                f"SELECT DISTINCT project_id, project_name FROM assignment_snapshots WHERE cycle_id = ? AND project_id IN ({','.join('?' * len(removed_projects))})",
+                                conn, params=[int(cycle_a)] + list(removed_projects),
+                            )
+                            st.dataframe(rem_p_df, use_container_width=True, hide_index=True)
+
+        finally:
+            conn.close()
+
+
+# ===========================================================================
 # PAGE: Cycle History
 # ===========================================================================
 elif page == "Cycle History":
@@ -1825,7 +2044,7 @@ elif page == "Communications":
 # ===========================================================================
 elif page == "Data Quality":
     st.title("Data Quality Issues")
-    st.markdown("View data quality issues found during processing cycles.")
+    st.markdown("View data quality issues and resolve unmatched PMs by creating identity aliases.")
 
     config = get_config()
     conn = get_db_connection(config)
@@ -1862,6 +2081,68 @@ elif page == "Data Quality":
                 filtered = dq_df if selected_type == "All" else dq_df[dq_df["issue_type"] == selected_type]
                 st.write(f"**{len(filtered)} issues**")
                 st.dataframe(filtered, use_container_width=True, hide_index=True)
+
+                # -------------------------------------------------------
+                # Unmatched PM Resolution
+                # -------------------------------------------------------
+                unmatched = dq_df[dq_df["issue_type"] == "unmatched_pm"]
+                if not unmatched.empty:
+                    st.header("Resolve Unmatched PMs")
+                    st.markdown(
+                        "Unmatched PMs could not be found in Fuse training records. "
+                        "You can create an identity alias to link them, or check for "
+                        "possible matches below."
+                    )
+
+                    # Get latest cycle's unmatched PMs (deduplicated)
+                    latest_cycle = unmatched["cycle_id"].max()
+                    latest_unmatched = unmatched[unmatched["cycle_id"] == latest_cycle].drop_duplicates(subset=["person_name"])
+                    st.write(f"**{len(latest_unmatched)} unmatched PMs** in latest cycle (Cycle {latest_cycle})")
+
+                    # Load Fuse names from DB for fuzzy matching suggestions
+                    all_pms = pd.read_sql_query(
+                        "SELECT DISTINCT full_name, email FROM project_managers ORDER BY full_name",
+                        conn,
+                    )
+
+                    for idx, um_row in latest_unmatched.iterrows():
+                        pm_name = um_row["person_name"] or "Unknown"
+                        pm_email = um_row["email"] or ""
+
+                        with st.expander(f"{pm_name} ({pm_email or 'no email'})"):
+                            st.markdown(f"**Details:** {um_row['details']}")
+
+                            # Suggest possible matches by partial name
+                            if pm_name and pm_name != "Unknown":
+                                name_parts = pm_name.lower().split()
+                                suggestions = []
+                                for _, pm in all_pms.iterrows():
+                                    existing_name = (pm["full_name"] or "").lower()
+                                    existing_email = (pm["email"] or "").lower()
+                                    # Check if any name part appears in existing PM
+                                    score = sum(1 for part in name_parts if part in existing_name or part in existing_email)
+                                    if score > 0 and existing_name != pm_name.lower():
+                                        suggestions.append((score, pm["full_name"], pm["email"]))
+
+                                suggestions.sort(key=lambda x: -x[0])
+                                top_suggestions = suggestions[:5]
+
+                                if top_suggestions:
+                                    st.markdown("**Possible matches in database:**")
+                                    for score, sname, semail in top_suggestions:
+                                        st.markdown(f"- {sname} ({semail or 'no email'}) — {score} name part(s) match")
+
+                            # Alias creation form
+                            st.markdown("**Create Identity Alias:**")
+                            st.markdown(
+                                "To resolve this, add a row to `identity_aliases.xlsx` with:\n"
+                                f"- **alias_name:** `{pm_name}`\n"
+                                f"- **alias_email:** `{pm_email}`\n"
+                                "- **canonical_name:** *(the correct name in Fuse)*\n"
+                                "- **canonical_email:** *(the correct email in Fuse)*\n"
+                                "- **reason:** *(e.g., maiden name, domain change)*"
+                            )
+
         finally:
             conn.close()
 
@@ -1921,3 +2202,421 @@ elif page == "Database Explorer":
                         st.error(f"Query error: {e}")
         finally:
             conn.close()
+
+
+# ===========================================================================
+# PAGE: Settings
+# ===========================================================================
+elif page == "Settings":
+    st.title("Settings")
+    st.markdown("View and edit the system configuration (`config.yaml`).")
+
+    config = get_config()
+    config_path = os.path.join(PROJECT_ROOT, "config.yaml")
+
+    import yaml
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        raw_yaml = f.read()
+
+    tab_visual, tab_raw = st.tabs(["Visual Editor", "Raw YAML"])
+
+    with tab_visual:
+        # --- Paths ---
+        st.header("Paths")
+        paths = config.get("paths", {})
+        for key, val in paths.items():
+            st.text_input(key, val, disabled=True, key=f"path_{key}")
+
+        # --- Required Training ---
+        st.header("Required Training Courses")
+        req_training = config.get("required_training", {})
+        for course_key, course_info in req_training.items():
+            st.markdown(f"**{course_info.get('label', course_key)}**")
+            st.text_input("Content Title", course_info.get("content_title", ""), disabled=True, key=f"rt_{course_key}")
+
+        # --- Status Mapping ---
+        st.header("Status Mappings")
+        status_mapping = config.get("status_mapping", {})
+        for key, values in status_mapping.items():
+            label = key.replace("_", " ").title()
+            st.markdown(f"**{label}:** {', '.join(str(v) for v in values)}")
+
+        # --- Action Links ---
+        st.header("Action Links")
+        action_links = config.get("action_links", {})
+        edited_links = {}
+        changed = False
+        for key, val in action_links.items():
+            label = key.replace("_", " ").title()
+            new_val = st.text_input(label, val, key=f"al_{key}")
+            edited_links[key] = new_val
+            if new_val != val:
+                changed = True
+
+        # --- Communication Settings ---
+        st.header("Communication Settings")
+        comm = config.get("communication", {})
+        max_stage = st.number_input(
+            "Max Reminder Stage (0 = unlimited)",
+            min_value=0, value=comm.get("max_reminder_stage", 0),
+            key="comm_max_stage",
+        )
+        if max_stage != comm.get("max_reminder_stage", 0):
+            changed = True
+
+        # --- File Patterns ---
+        st.header("File Patterns")
+        file_patterns = config.get("file_patterns", {})
+        edited_patterns = {}
+        for key, val in file_patterns.items():
+            new_val = st.text_input(f"{key} pattern", val, key=f"fp_{key}")
+            edited_patterns[key] = new_val
+            if new_val != val:
+                changed = True
+
+        # --- Comms Schedule ---
+        st.header("Weekly Communication Schedule")
+        comms_schedule = config.get("comms_schedule", {})
+        for day in ["monday", "tuesday", "wednesday", "thursday", "friday"]:
+            actions = comms_schedule.get(day, [])
+            st.markdown(f"**{day.capitalize()}:** {', '.join(actions) if actions else '—'}")
+
+        # Save
+        if changed:
+            st.warning("You have unsaved changes.")
+            if st.button("Save Configuration", type="primary"):
+                # Update config dict
+                for key, val in edited_links.items():
+                    config["action_links"][key] = val
+                config.setdefault("communication", {})["max_reminder_stage"] = max_stage
+                for key, val in edited_patterns.items():
+                    config.setdefault("file_patterns", {})[key] = val
+
+                with open(config_path, "w", encoding="utf-8") as f:
+                    yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                st.success("Configuration saved!")
+                st.rerun()
+
+    with tab_raw:
+        st.markdown("Edit the raw YAML directly. Be careful with indentation.")
+        edited_yaml = st.text_area("config.yaml", raw_yaml, height=600, key="raw_yaml_editor")
+
+        col_save, col_validate = st.columns([1, 4])
+        with col_save:
+            if st.button("Save Raw YAML", type="primary"):
+                try:
+                    yaml.safe_load(edited_yaml)  # Validate
+                    with open(config_path, "w", encoding="utf-8") as f:
+                        f.write(edited_yaml)
+                    st.success("Configuration saved!")
+                    st.rerun()
+                except yaml.YAMLError as e:
+                    st.error(f"Invalid YAML: {e}")
+        with col_validate:
+            if st.button("Validate Only"):
+                try:
+                    yaml.safe_load(edited_yaml)
+                    st.success("YAML is valid.")
+                except yaml.YAMLError as e:
+                    st.error(f"Invalid YAML: {e}")
+
+
+# ===========================================================================
+# PAGE: Simulation
+# ===========================================================================
+elif page == "Simulation":
+    st.title("Simulation Runner")
+    st.markdown(
+        "Generate synthetic test data and run multi-cycle simulations to test "
+        "the system or demo its capabilities."
+    )
+
+    config = get_config()
+    sim_dir = os.path.join(PROJECT_ROOT, "data", "simulation")
+
+    # Check existing simulation data
+    existing_cycles = []
+    if os.path.exists(sim_dir):
+        existing_cycles = sorted(
+            [d for d in os.listdir(sim_dir) if d.startswith("cycle_") and os.path.isdir(os.path.join(sim_dir, d))]
+        )
+
+    st.header("1. Generate Test Data")
+    if existing_cycles:
+        st.success(f"Simulation data exists: **{len(existing_cycles)} cycles** in `data/simulation/`")
+        for cycle_dir in existing_cycles:
+            cycle_path = os.path.join(sim_dir, cycle_dir)
+            files = [f for f in os.listdir(cycle_path) if f.endswith(".xlsx")]
+            st.caption(f"  {cycle_dir}: {len(files)} files — {', '.join(files[:3])}{'...' if len(files) > 3 else ''}")
+    else:
+        st.info("No simulation data found.")
+
+    col_gen, col_clear = st.columns([1, 1])
+    with col_gen:
+        if st.button("Generate Test Data", type="primary"):
+            with st.spinner("Generating synthetic test data..."):
+                original_dir = os.getcwd()
+                os.chdir(PROJECT_ROOT)
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        [sys.executable, "generate_test_data.py"],
+                        capture_output=True, text=True, timeout=120,
+                    )
+                    if result.returncode == 0:
+                        st.success("Test data generated successfully!")
+                        st.code(result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout)
+                    else:
+                        st.error(f"Generation failed:\n{result.stderr}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                finally:
+                    os.chdir(original_dir)
+            st.rerun()
+
+    with col_clear:
+        if existing_cycles and st.button("Clear Simulation Data"):
+            import shutil as shutil_mod
+            shutil_mod.rmtree(sim_dir, ignore_errors=True)
+            st.success("Simulation data cleared.")
+            st.rerun()
+
+    # --- Run Simulation ---
+    st.header("2. Run Simulation")
+    if not existing_cycles:
+        st.info("Generate test data first before running simulation.")
+    else:
+        st.markdown(
+            f"Run the full multi-cycle simulation ({len(existing_cycles)} cycles). "
+            "This resets the database and processes each cycle sequentially."
+        )
+        st.warning("This will **reset the database** and all existing cycle data.")
+
+        if st.button("Run Full Simulation", type="primary"):
+            with st.spinner("Running simulation..."):
+                original_dir = os.getcwd()
+                os.chdir(PROJECT_ROOT)
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        [sys.executable, "run_simulation.py"],
+                        capture_output=True, text=True, timeout=600,
+                    )
+                    if result.returncode == 0:
+                        st.success("Simulation completed!")
+                        st.code(result.stdout[-3000:] if len(result.stdout) > 3000 else result.stdout)
+                    else:
+                        st.error(f"Simulation failed:\n{result.stderr[-2000:]}")
+                        if result.stdout:
+                            st.code(result.stdout[-2000:])
+                except subprocess.TimeoutExpired:
+                    st.error("Simulation timed out (10 minute limit).")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                finally:
+                    os.chdir(original_dir)
+
+        # Run individual cycle
+        st.subheader("Or Run a Single Simulation Cycle")
+        cycle_nums = [int(d.replace("cycle_", "")) for d in existing_cycles]
+        selected_cycle_num = st.selectbox("Select Cycle", cycle_nums, format_func=lambda x: f"Cycle {x}")
+        if st.button(f"Run Cycle {selected_cycle_num} Only"):
+            with st.spinner(f"Running cycle {selected_cycle_num}..."):
+                original_dir = os.getcwd()
+                os.chdir(PROJECT_ROOT)
+                try:
+                    from run_simulation import clear_input_folder, copy_cycle_files
+                    from main import run_cycle
+
+                    clear_input_folder(config)
+                    copy_cycle_files(selected_cycle_num, config)
+                    summary = run_cycle("config.yaml")
+
+                    if summary:
+                        st.success(f"Cycle {selected_cycle_num} completed!")
+                        summary_df = pd.DataFrame(
+                            [{"Metric": k.replace("_", " ").title(), "Value": v} for k, v in summary.items()]
+                        )
+                        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                    else:
+                        st.warning("Cycle was reverted due to input validation error.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                finally:
+                    os.chdir(original_dir)
+
+
+# ===========================================================================
+# PAGE: Log Viewer
+# ===========================================================================
+elif page == "Log Viewer":
+    st.title("Log Viewer")
+    st.markdown("Browse application logs from processing cycles.")
+
+    config = get_config()
+    log_dir = os.path.join(PROJECT_ROOT, config["paths"].get("log_folder", "logs"))
+
+    if not os.path.exists(log_dir):
+        st.info("No log directory found.")
+    else:
+        log_files = sorted(
+            [f for f in os.listdir(log_dir) if f.endswith(".log")],
+            reverse=True,
+        )
+        if not log_files:
+            st.info("No log files found.")
+        else:
+            st.write(f"**{len(log_files)} log files** in `{config['paths'].get('log_folder', 'logs')}/`")
+
+            selected_log = st.selectbox("Select Log File", log_files)
+            log_path = os.path.join(log_dir, selected_log)
+
+            # File size
+            file_size = os.path.getsize(log_path)
+            st.caption(f"Size: {file_size:,} bytes")
+
+            # Read log content
+            with open(log_path, "r", encoding="utf-8") as f:
+                log_content = f.read()
+
+            log_lines = log_content.split("\n")
+
+            # Filters
+            col_level, col_search = st.columns(2)
+            with col_level:
+                level_filter = st.multiselect(
+                    "Filter by Level",
+                    ["INFO", "WARNING", "ERROR", "DEBUG"],
+                    default=[],
+                )
+            with col_search:
+                search_text = st.text_input("Search in logs", "")
+
+            if level_filter or search_text:
+                filtered_lines = []
+                for line in log_lines:
+                    if level_filter:
+                        if not any(f"[{level}]" in line for level in level_filter):
+                            continue
+                    if search_text:
+                        if search_text.lower() not in line.lower():
+                            continue
+                    filtered_lines.append(line)
+                display_lines = filtered_lines
+                st.write(f"**{len(display_lines)}** matching lines (of {len(log_lines)} total)")
+            else:
+                display_lines = log_lines
+
+            # Show last N lines option
+            max_lines = st.selectbox("Show lines", [50, 100, 250, 500, 1000], index=1)
+            if len(display_lines) > max_lines:
+                st.caption(f"Showing last {max_lines} of {len(display_lines)} lines")
+                display_lines = display_lines[-max_lines:]
+
+            # Color-code by level
+            log_text = "\n".join(display_lines)
+            st.code(log_text, language="log")
+
+            # Error summary
+            errors = [l for l in log_lines if "[ERROR]" in l]
+            warnings = [l for l in log_lines if "[WARNING]" in l]
+            if errors or warnings:
+                st.subheader("Issues Summary")
+                if errors:
+                    with st.expander(f"Errors ({len(errors)})", expanded=True):
+                        for e in errors:
+                            st.markdown(f"``{e.strip()}``")
+                if warnings:
+                    with st.expander(f"Warnings ({len(warnings)})"):
+                        for w in warnings[:50]:
+                            st.markdown(f"``{w.strip()}``")
+                        if len(warnings) > 50:
+                            st.caption(f"... and {len(warnings) - 50} more warnings")
+
+            # Download
+            st.download_button(
+                "Download Log File",
+                log_content,
+                file_name=selected_log,
+                mime="text/plain",
+            )
+
+
+# ===========================================================================
+# PAGE: Archive Browser
+# ===========================================================================
+elif page == "Archive Browser":
+    st.title("Archive Browser")
+    st.markdown("Browse archived input files from past processing cycles.")
+
+    config = get_config()
+    archive_dir = os.path.join(PROJECT_ROOT, config["paths"].get("archive_folder", "data/archive"))
+    conn = get_db_connection(config)
+
+    if not os.path.exists(archive_dir):
+        st.info("No archive directory found.")
+    else:
+        # List archive folders/files
+        archive_items = sorted(os.listdir(archive_dir), reverse=True)
+        if not archive_items:
+            st.info("Archive is empty. Files are archived after each cycle run.")
+        else:
+            # Show database records if available
+            if conn:
+                try:
+                    processed_df = pd.read_sql_query(
+                        """SELECT pf.cycle_id, c.cycle_timestamp, pf.file_type,
+                                  pf.original_filename, pf.archived_filename,
+                                  pf.archive_path, pf.checksum, pf.processed_at
+                           FROM processed_files pf
+                           JOIN cycles c ON pf.cycle_id = c.id
+                           ORDER BY pf.cycle_id DESC, pf.file_type""",
+                        conn,
+                    )
+                    if not processed_df.empty:
+                        st.header("Processed Files Registry")
+                        st.write(f"**{len(processed_df)} archived files** across {processed_df['cycle_id'].nunique()} cycles")
+
+                        # Group by cycle
+                        for cycle_id in sorted(processed_df["cycle_id"].unique(), reverse=True):
+                            cycle_files = processed_df[processed_df["cycle_id"] == cycle_id]
+                            cycle_ts = cycle_files.iloc[0]["cycle_timestamp"][:10]
+                            with st.expander(f"Cycle {cycle_id} — {cycle_ts} ({len(cycle_files)} files)"):
+                                st.dataframe(
+                                    cycle_files[["file_type", "original_filename", "archived_filename", "checksum", "processed_at"]],
+                                    use_container_width=True, hide_index=True,
+                                )
+                finally:
+                    conn.close()
+
+            # Browse actual files on disk
+            st.header("Archive Files on Disk")
+
+            # Detect structure: could be flat files or date-based subfolders
+            folders = [d for d in archive_items if os.path.isdir(os.path.join(archive_dir, d))]
+            files = [f for f in archive_items if os.path.isfile(os.path.join(archive_dir, f))]
+
+            if folders:
+                selected_folder = st.selectbox("Select Archive Folder", folders)
+                folder_path = os.path.join(archive_dir, selected_folder)
+                folder_files = sorted(os.listdir(folder_path))
+                st.write(f"**{len(folder_files)} files** in `{selected_folder}/`")
+                for f in folder_files:
+                    fpath = os.path.join(folder_path, f)
+                    fsize = os.path.getsize(fpath)
+                    st.markdown(f"- `{f}` ({fsize:,} bytes)")
+
+            if files:
+                st.subheader("Archived Files")
+                for f in files:
+                    fpath = os.path.join(archive_dir, f)
+                    fsize = os.path.getsize(fpath)
+                    st.markdown(f"- `{f}` ({fsize:,} bytes)")
+
+            # Total archive size
+            total_size = 0
+            for root, _dirs, flist in os.walk(archive_dir):
+                for f in flist:
+                    total_size += os.path.getsize(os.path.join(root, f))
+            st.caption(f"Total archive size: {total_size / 1024:.1f} KB")

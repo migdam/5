@@ -174,7 +174,7 @@ The system includes an optional browser-based interface built with Streamlit. La
 streamlit run streamlit_app.py
 ```
 
-The UI provides ten pages:
+The UI provides fifteen pages:
 
 - **Dashboard**: Key metrics with KPI cards and charts — IT PM certification rate over time (line chart), project compliance rate over time (line chart with inverse delta coloring), average/median/min/max reminders to certification (distribution histogram), and time to certification from first reminder (days distribution chart). Each metric includes per-PM detail tables.
 - **Run Cycle**: Upload ePPM and Fuse Excel files (plus optional files), preview data, run a processing cycle, view summary metrics, browse output files, and download results as a zip.
@@ -182,9 +182,14 @@ The UI provides ten pages:
 - **Templates**: View and edit all Jinja2 email templates organized by category (training reminders, follow-up rotations, IT PM reminders, congratulations, group emails). Shows available template variables and conditionals. Includes a variable reference guide. Changes save directly to disk.
 - **Calendar**: Visual weekly send schedule showing which communication types go out on which day (color-coded cards). Communication history charts showing volume and type breakdown across cycles. Cycle run timeline with status indicators. Next-week projection based on the latest cycle results.
 - **IT PM Track Record**: Comprehensive per-PM view with search. Shows identity card with quick stats (training status, current stage, total reminders, projects, cycles tracked, certification). Five detail tabs: Training Progress (status over time with visual indicators), Project Assignments (unique projects and assignment timeline matrix), Communications (stage progression visualization with full email preview), Compliance (issues by project, gate distribution chart, trend over time), and Full Timeline (all events chronologically).
+- **Cycle Comparison**: Side-by-side comparison of two cycles showing newly certified PMs, new/removed PMs, training status changes, communication stage progression, and project assignment changes (new/removed/continuing projects).
 - **Cycle History**: Browse all past cycles with detailed tabs for assignments, training status, communications, and data quality issues per cycle. Includes email preview.
 - **Communications**: Filter and search all communications across cycles. View per-PM communication timelines to see reminder progression.
-- **Data Quality**: Review unmatched PMs and other data quality issues, with filtering by issue type.
+- **Data Quality**: Review data quality issues with filtering by type. Includes unmatched PM resolution — shows possible name matches from the database and provides guidance for creating identity aliases.
+- **Settings**: Visual editor and raw YAML editor for `config.yaml`. Edit action links, communication settings, file patterns. Validates YAML before saving.
+- **Simulation**: Generate synthetic test data and run multi-cycle simulations. Run full simulations or individual cycles. Browse existing simulation data.
+- **Log Viewer**: Browse application logs with level filtering (INFO/WARNING/ERROR/DEBUG) and text search. Error/warning summary. Download log files.
+- **Archive Browser**: Browse archived input files by cycle, view the processed files registry with checksums, inspect archive folder contents and total size.
 - **Database Explorer**: Browse any table in the SQLite database with pagination, or run custom SQL queries.
 
 ## Project Structure

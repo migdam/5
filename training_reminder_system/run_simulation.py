@@ -37,6 +37,7 @@
 #   RChg — role-changed IT PM alerts
 ##############################################################################
 """Run a multi-cycle simulation to demonstrate the Training Reminder System."""
+import argparse
 import os
 import sys
 import shutil
@@ -214,10 +215,42 @@ def discover_cycles():
     return sorted(cycles)
 
 
-def main():
+def run_simulation(start_cycle=None, end_cycle=None, cycles=None,
+                   keep_db=False, keep_output=False, stop_on_zero=True,
+                   config_path="config.yaml", generate_first=False,
+                   generator_args=None):
+    """Run a multi-cycle simulation.
+
+    Args:
+        start_cycle: First cycle number to run (default: first available).
+        end_cycle: Last cycle number to run (default: last available).
+        cycles: Explicit list of cycle numbers to run (overrides start/end).
+        keep_db: If True, keep the existing database (resume mode).
+        keep_output: If True, keep existing output/archive folders.
+        stop_on_zero: If True, stop when 0 training reminders generated.
+        config_path: Path to config.yaml.
+        generate_first: If True, run generate_test_data.py before simulating.
+        generator_args: List of extra CLI args for generate_test_data.py
+            (e.g., ["--num-people", "100", "--training-speed", "2.0"]).
+
+    Returns:
+        List of summary dicts, one per cycle.
+    """
     print("=" * 70)
     print("TRAINING REMINDER SYSTEM - Multi-Cycle Simulation")
     print("=" * 70)
+
+    # Optionally generate test data first
+    if generate_first:
+        import subprocess
+        cmd = [sys.executable, "generate_test_data.py"]
+        if generator_args:
+            cmd.extend(generator_args)
+        print(f"\nGenerating test data: {' '.join(cmd)}")
+        result = subprocess.run(cmd, timeout=300)
+        if result.returncode != 0:
+            print("ERROR: Test data generation failed.")
+            sys.exit(1)
 
     # Discover available cycles
     available_cycles = discover_cycles()
@@ -226,37 +259,53 @@ def main():
         print("Run 'python generate_test_data.py' first to create test data.")
         sys.exit(1)
 
-    print(f"\nDiscovered {len(available_cycles)} cycles: {available_cycles}")
+    # Determine which cycles to run
+    if cycles:
+        run_cycles = [c for c in cycles if c in available_cycles]
+    else:
+        lo = start_cycle or available_cycles[0]
+        hi = end_cycle or available_cycles[-1]
+        run_cycles = [c for c in available_cycles if lo <= c <= hi]
 
-    config = load_config()
+    if not run_cycles:
+        print(f"\nNo matching cycles found. Available: {available_cycles}")
+        sys.exit(1)
 
-    # Reset for fresh simulation
-    print("\nPreparing fresh simulation...")
-    reset_database(config)
+    print(f"\nWill run cycles: {run_cycles} (of {len(available_cycles)} available)")
 
-    # Clear archive and output folders for clean demo
-    for folder in ["archive_folder", "output_folder"]:
-        path = config["paths"][folder]
-        if os.path.exists(path):
-            shutil.rmtree(path)
-        os.makedirs(path, exist_ok=True)
+    config = load_config(config_path)
 
-    # Run each cycle until all PMs certified or no more cycles
+    # Reset or keep database
+    if not keep_db:
+        print("\nPreparing fresh simulation...")
+        reset_database(config)
+    else:
+        print("\nResuming with existing database (--keep-db)...")
+
+    # Clear or keep output/archive folders
+    if not keep_output:
+        for folder in ["archive_folder", "output_folder"]:
+            path = config["paths"][folder]
+            if os.path.exists(path):
+                shutil.rmtree(path)
+            os.makedirs(path, exist_ok=True)
+
+    # Run each cycle
     all_summaries = []
-    for cycle_num in available_cycles:
+    for cycle_num in run_cycles:
         print(f"\n{'='*70}")
-        print(f"RUNNING CYCLE {cycle_num} of {len(available_cycles)}")
+        print(f"RUNNING CYCLE {cycle_num} of {run_cycles[-1]}")
         print(f"{'='*70}")
 
         clear_input_folder(config)
         copy_cycle_files(cycle_num, config)
 
         try:
-            summary = run_cycle()
+            summary = run_cycle(config_path)
             all_summaries.append(summary)
 
             reminders = summary.get("training_reminders_generated", summary.get("reminders_generated", 0)) if summary else 0
-            if reminders == 0 and cycle_num > 1:
+            if stop_on_zero and reminders == 0 and cycle_num > run_cycles[0]:
                 print(f"\n  *** ZERO reminders generated! All PMs are certified. ***")
                 print(f"  Simulation reached full certification at cycle {cycle_num}.")
                 break
@@ -266,6 +315,47 @@ def main():
             import traceback
             traceback.print_exc()
             continue
+
+    return all_summaries, config
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Run a multi-cycle simulation of the Training Reminder System",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--start-cycle", type=int, default=None,
+                        help="First cycle to run (default: first available)")
+    parser.add_argument("--end-cycle", type=int, default=None,
+                        help="Last cycle to run (default: last available)")
+    parser.add_argument("--cycles", type=int, nargs="+", default=None,
+                        help="Explicit list of cycle numbers to run (e.g., --cycles 1 3 5)")
+    parser.add_argument("--keep-db", action="store_true",
+                        help="Keep existing database instead of resetting (resume mode)")
+    parser.add_argument("--keep-output", action="store_true",
+                        help="Keep existing output/archive folders")
+    parser.add_argument("--no-stop", action="store_true",
+                        help="Don't stop when 0 training reminders (run all cycles)")
+    parser.add_argument("--config", default="config.yaml",
+                        help="Path to config.yaml")
+    parser.add_argument("--generate", action="store_true",
+                        help="Generate test data before running simulation")
+    parser.add_argument("--generator-args", nargs=argparse.REMAINDER, default=None,
+                        help="Extra args for generate_test_data.py (e.g., --generator-args --num-people 100)")
+
+    args = parser.parse_args()
+
+    all_summaries, config = run_simulation(
+        start_cycle=args.start_cycle,
+        end_cycle=args.end_cycle,
+        cycles=args.cycles,
+        keep_db=args.keep_db,
+        keep_output=args.keep_output,
+        stop_on_zero=not args.no_stop,
+        config_path=args.config,
+        generate_first=args.generate,
+        generator_args=args.generator_args,
+    )
 
     # Print cross-cycle comparison
     print_cross_cycle_summary(config)

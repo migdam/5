@@ -98,7 +98,7 @@ st.sidebar.title("Training Reminder System")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Run Cycle", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
+    ["Run Cycle", "Reminders", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
     index=0,
 )
 
@@ -278,6 +278,194 @@ if page == "Run Cycle":
                                             st.code(content, language=None)
                                     except Exception as e:
                                         st.error(f"Could not read file: {e}")
+
+
+# ===========================================================================
+# PAGE: Reminders
+# ===========================================================================
+elif page == "Reminders":
+    st.title("Generated Reminders")
+    st.markdown("Browse and preview generated email reminders organized by send day.")
+
+    config = get_config()
+    output_base = os.path.join(PROJECT_ROOT, config["paths"]["output_folder"])
+
+    if not os.path.exists(output_base):
+        st.info("No output folder found. Run a processing cycle first.")
+    else:
+        output_dirs = sorted(
+            [d for d in os.listdir(output_base) if os.path.isdir(os.path.join(output_base, d))],
+            reverse=True,
+        )
+        if not output_dirs:
+            st.info("No cycle outputs found. Run a processing cycle first.")
+        else:
+            selected_output = st.selectbox("Select Output Cycle", output_dirs)
+            output_dir = os.path.join(output_base, selected_output)
+
+            # Download button
+            zip_buf = zip_directory(output_dir)
+            st.download_button(
+                label=f"Download All ({selected_output}.zip)",
+                data=zip_buf,
+                file_name=f"{selected_output}.zip",
+                mime="application/zip",
+            )
+
+            # Show comms plan if it exists
+            comms_plan_path = os.path.join(output_dir, "comms_plan.md")
+            if os.path.exists(comms_plan_path):
+                with st.expander("Weekly Communication Plan", expanded=False):
+                    with open(comms_plan_path, "r", encoding="utf-8") as f:
+                        st.markdown(f.read())
+
+            # Show summary report if it exists
+            summary_path = os.path.join(output_dir, "summary_report.md")
+            if os.path.exists(summary_path):
+                with st.expander("Cycle Summary Report", expanded=False):
+                    with open(summary_path, "r", encoding="utf-8") as f:
+                        st.markdown(f.read())
+
+            # Organize by send day
+            st.header("Browse by Send Day")
+            send_days = sorted(
+                [d for d in os.listdir(output_dir)
+                 if d.startswith("send_") and os.path.isdir(os.path.join(output_dir, d))]
+            )
+
+            # Also collect category folders
+            category_folders = []
+            for d in sorted(os.listdir(output_dir)):
+                full = os.path.join(output_dir, d)
+                if os.path.isdir(full) and not d.startswith("send_"):
+                    category_folders.append(d)
+
+            if send_days:
+                day_tabs = st.tabs([d.replace("send_", "").capitalize() for d in send_days])
+                for tab, send_day in zip(day_tabs, send_days):
+                    with tab:
+                        day_path = os.path.join(output_dir, send_day)
+                        # List subfolders and files
+                        for item in sorted(os.listdir(day_path)):
+                            item_path = os.path.join(day_path, item)
+                            if os.path.isdir(item_path):
+                                st.subheader(item.replace("_", " ").title())
+                                files = sorted(os.listdir(item_path))
+                                txt_files = [f for f in files if f.endswith(".txt")]
+                                csv_files = [f for f in files if f.endswith(".csv")]
+
+                                if csv_files:
+                                    for csv_file in csv_files:
+                                        csv_path = os.path.join(item_path, csv_file)
+                                        with st.expander(f"CSV: {csv_file}"):
+                                            try:
+                                                csv_df = pd.read_csv(csv_path)
+                                                st.dataframe(csv_df, use_container_width=True, hide_index=True)
+                                            except Exception as e:
+                                                st.error(f"Could not read CSV: {e}")
+
+                                if txt_files:
+                                    selected_file = st.selectbox(
+                                        "Select email to preview",
+                                        txt_files,
+                                        key=f"sel_{send_day}_{item}",
+                                    )
+                                    if selected_file:
+                                        file_path = os.path.join(item_path, selected_file)
+                                        with open(file_path, "r", encoding="utf-8") as fh:
+                                            content = fh.read()
+
+                                        # Parse email parts for structured display
+                                        lines = content.split("\n")
+                                        to_line = ""
+                                        subject_line = ""
+                                        body_start = 0
+                                        for i, line in enumerate(lines):
+                                            if line.startswith("To:"):
+                                                to_line = line[3:].strip()
+                                            elif line.startswith("Subject:"):
+                                                subject_line = line[8:].strip()
+                                            elif "copy below this line" in line.lower():
+                                                body_start = i + 2
+                                                break
+
+                                        if to_line:
+                                            st.text_input("To", to_line, key=f"to_{send_day}_{item}_{selected_file}", disabled=True)
+                                        if subject_line:
+                                            st.text_input("Subject", subject_line, key=f"subj_{send_day}_{item}_{selected_file}", disabled=True)
+                                        if body_start > 0 and body_start < len(lines):
+                                            email_body = "\n".join(lines[body_start:])
+                                            st.text_area("Email Body", email_body, height=300, key=f"body_{send_day}_{item}_{selected_file}")
+                                        else:
+                                            st.text_area("Full Content", content, height=300, key=f"full_{send_day}_{item}_{selected_file}")
+
+                            elif os.path.isfile(item_path) and item.endswith(".txt"):
+                                with st.expander(item):
+                                    with open(item_path, "r", encoding="utf-8") as fh:
+                                        st.code(fh.read(), language=None)
+                            elif os.path.isfile(item_path) and item.endswith(".csv"):
+                                with st.expander(item):
+                                    try:
+                                        csv_df = pd.read_csv(item_path)
+                                        st.dataframe(csv_df, use_container_width=True, hide_index=True)
+                                    except Exception as e:
+                                        st.error(f"Could not read CSV: {e}")
+
+            # Browse by category
+            if category_folders:
+                st.header("Browse by Category")
+                selected_category = st.selectbox("Category", category_folders)
+                if selected_category:
+                    cat_path = os.path.join(output_dir, selected_category)
+                    files = sorted(os.listdir(cat_path))
+                    txt_files = [f for f in files if f.endswith(".txt")]
+                    csv_files = [f for f in files if f.endswith(".csv")]
+
+                    if csv_files:
+                        for csv_file in csv_files:
+                            csv_path = os.path.join(cat_path, csv_file)
+                            with st.expander(f"CSV: {csv_file}", expanded=len(csv_files) == 1):
+                                try:
+                                    csv_df = pd.read_csv(csv_path)
+                                    st.write(f"**{len(csv_df)} rows**")
+                                    st.dataframe(csv_df, use_container_width=True, hide_index=True)
+                                except Exception as e:
+                                    st.error(f"Could not read CSV: {e}")
+
+                    if txt_files:
+                        st.write(f"**{len(txt_files)} email files**")
+                        selected_file = st.selectbox(
+                            "Select email to preview",
+                            txt_files,
+                            key=f"cat_{selected_category}",
+                        )
+                        if selected_file:
+                            file_path = os.path.join(cat_path, selected_file)
+                            with open(file_path, "r", encoding="utf-8") as fh:
+                                content = fh.read()
+
+                            lines = content.split("\n")
+                            to_line = ""
+                            subject_line = ""
+                            body_start = 0
+                            for i, line in enumerate(lines):
+                                if line.startswith("To:"):
+                                    to_line = line[3:].strip()
+                                elif line.startswith("Subject:"):
+                                    subject_line = line[8:].strip()
+                                elif "copy below this line" in line.lower():
+                                    body_start = i + 2
+                                    break
+
+                            if to_line:
+                                st.text_input("To", to_line, key=f"cat_to_{selected_category}_{selected_file}", disabled=True)
+                            if subject_line:
+                                st.text_input("Subject", subject_line, key=f"cat_subj_{selected_category}_{selected_file}", disabled=True)
+                            if body_start > 0 and body_start < len(lines):
+                                email_body = "\n".join(lines[body_start:])
+                                st.text_area("Email Body (select and copy)", email_body, height=300, key=f"cat_body_{selected_category}_{selected_file}")
+                            else:
+                                st.text_area("Full Content", content, height=300, key=f"cat_full_{selected_category}_{selected_file}")
 
 
 # ===========================================================================

@@ -98,7 +98,7 @@ st.sidebar.title("Training Reminder System")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Run Cycle", "Reminders", "Templates", "Calendar", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
+    ["Run Cycle", "Reminders", "Templates", "Calendar", "IT PM Track Record", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
     index=0,
 )
 
@@ -884,6 +884,407 @@ elif page == "Calendar":
                         f"({latest_cycle.iloc[-1]['cycle_timestamp'][:10]}). "
                         f"Actual counts depend on the next cycle run."
                     )
+        finally:
+            conn.close()
+
+
+# ===========================================================================
+# PAGE: IT PM Track Record
+# ===========================================================================
+elif page == "IT PM Track Record":
+    st.title("IT PM Track Record")
+    st.markdown(
+        "Comprehensive per-PM view showing training progression, project assignments, "
+        "communication history, and compliance issues across all cycles."
+    )
+
+    config = get_config()
+    conn = get_db_connection(config)
+
+    if conn is None:
+        st.info("No database found. Run a processing cycle first.")
+    else:
+        try:
+            # Load all PMs
+            pms_df = pd.read_sql_query(
+                "SELECT id, full_name, email, normalized_name, created_at FROM project_managers ORDER BY full_name",
+                conn,
+            )
+            if pms_df.empty:
+                st.info("No project managers recorded yet.")
+            else:
+                # PM selector with search
+                col_search, col_select = st.columns([1, 2])
+                with col_search:
+                    pm_search = st.text_input("Search PM", "", placeholder="Type a name or email...")
+                with col_select:
+                    filtered_pms = pms_df
+                    if pm_search:
+                        mask = (
+                            pms_df["full_name"].str.contains(pm_search, case=False, na=False)
+                            | pms_df["email"].fillna("").str.contains(pm_search, case=False, na=False)
+                        )
+                        filtered_pms = pms_df[mask]
+
+                    if filtered_pms.empty:
+                        st.warning("No PMs match your search.")
+                        st.stop()
+
+                    selected_pm_id = st.selectbox(
+                        "Select PM",
+                        filtered_pms["id"].tolist(),
+                        format_func=lambda x: f"{pms_df[pms_df['id']==x]['full_name'].values[0]} ({pms_df[pms_df['id']==x]['email'].values[0] or 'no email'})",
+                    )
+
+                pm_row = pms_df[pms_df["id"] == selected_pm_id].iloc[0]
+
+                # ----------------------------------------------------------
+                # PM Identity Card
+                # ----------------------------------------------------------
+                st.markdown("---")
+                id_col1, id_col2, id_col3 = st.columns(3)
+                id_col1.markdown(f"### {pm_row['full_name']}")
+                id_col2.markdown(f"**Email:** {pm_row['email'] or 'N/A'}")
+                id_col3.markdown(f"**First seen:** {pm_row['created_at'][:10]}")
+
+                # Quick stats
+                total_comms = conn.execute(
+                    "SELECT COUNT(*) as cnt FROM communication_history WHERE project_manager_id = ?",
+                    (int(selected_pm_id),),
+                ).fetchone()["cnt"]
+                max_stage_row = conn.execute(
+                    "SELECT MAX(reminder_stage) as ms FROM communication_history WHERE project_manager_id = ? AND reminder_stage > 0 AND reminder_stage < 99",
+                    (int(selected_pm_id),),
+                ).fetchone()
+                max_stage = max_stage_row["ms"] if max_stage_row and max_stage_row["ms"] is not None else 0
+                got_congrats = conn.execute(
+                    "SELECT COUNT(*) as cnt FROM communication_history WHERE project_manager_id = ? AND reminder_stage = 99",
+                    (int(selected_pm_id),),
+                ).fetchone()["cnt"] > 0
+                latest_training = conn.execute(
+                    """SELECT overall_training_status, eligibility_status, fundamentals_status, advanced_status
+                       FROM training_snapshots WHERE project_manager_id = ?
+                       ORDER BY cycle_id DESC LIMIT 1""",
+                    (int(selected_pm_id),),
+                ).fetchone()
+                total_projects = conn.execute(
+                    "SELECT COUNT(DISTINCT project_id) as cnt FROM assignment_snapshots WHERE project_manager_id = ?",
+                    (int(selected_pm_id),),
+                ).fetchone()["cnt"]
+                cycles_appeared = conn.execute(
+                    "SELECT COUNT(DISTINCT cycle_id) as cnt FROM training_snapshots WHERE project_manager_id = ?",
+                    (int(selected_pm_id),),
+                ).fetchone()["cnt"]
+
+                stat_cols = st.columns(6)
+                if latest_training:
+                    current_status = latest_training["overall_training_status"]
+                    stat_cols[0].metric("Training Status", current_status.capitalize() if current_status else "Unknown")
+                else:
+                    stat_cols[0].metric("Training Status", "Unknown")
+                stat_cols[1].metric("Current Stage", max_stage if max_stage > 0 else "N/A")
+                stat_cols[2].metric("Total Reminders", total_comms)
+                stat_cols[3].metric("Projects (All Time)", total_projects)
+                stat_cols[4].metric("Cycles Tracked", cycles_appeared)
+                stat_cols[5].metric("Certified", "Yes" if got_congrats or (latest_training and latest_training["overall_training_status"] == "complete") else "No")
+
+                # ----------------------------------------------------------
+                # Tabs
+                # ----------------------------------------------------------
+                tab_train, tab_assign, tab_comms, tab_compliance, tab_timeline = st.tabs(
+                    ["Training Progress", "Project Assignments", "Communications", "Compliance", "Full Timeline"]
+                )
+
+                # --- Training Progress ---
+                with tab_train:
+                    training_hist = pd.read_sql_query(
+                        """SELECT ts.cycle_id, c.cycle_timestamp,
+                                  ts.fundamentals_status, ts.advanced_status,
+                                  ts.fundamentals_date, ts.advanced_date,
+                                  ts.overall_training_status, ts.match_method,
+                                  ts.missing_trainings, ts.nice_to_have_trainings,
+                                  ts.eligibility_status
+                           FROM training_snapshots ts
+                           JOIN cycles c ON ts.cycle_id = c.id
+                           WHERE ts.project_manager_id = ?
+                           ORDER BY ts.cycle_id""",
+                        conn,
+                        params=(int(selected_pm_id),),
+                    )
+                    if training_hist.empty:
+                        st.info("No training records for this PM.")
+                    else:
+                        st.subheader("Training Status Over Time")
+
+                        # Visual progress indicators
+                        for _, row in training_hist.iterrows():
+                            fund = row["fundamentals_status"]
+                            adv = row["advanced_status"]
+                            fund_icon = "OK" if fund == "completed" else "---"
+                            adv_icon = "OK" if adv == "completed" else "---"
+                            fund_color = "green" if fund == "completed" else "#cc4444"
+                            adv_color = "green" if adv == "completed" else "#cc4444"
+                            eligibility = row["eligibility_status"] or ""
+
+                            st.markdown(
+                                f'<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #eee;">'
+                                f'<strong style="min-width:70px;">Cycle {row["cycle_id"]}</strong>'
+                                f'<span style="color:#888;min-width:90px;">{row["cycle_timestamp"][:10]}</span>'
+                                f'<span style="background:{fund_color};color:white;padding:2px 8px;border-radius:4px;font-size:0.8em;">Fund: {fund_icon}</span>'
+                                f'<span style="background:{adv_color};color:white;padding:2px 8px;border-radius:4px;font-size:0.8em;">Adv: {adv_icon}</span>'
+                                f'<span style="color:#888;font-size:0.85em;">Match: {row["match_method"] or "?"}</span>'
+                                f'<span style="color:#666;font-size:0.85em;">{eligibility}</span>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                        st.markdown("")  # spacer
+
+                        with st.expander("Full Training Data Table"):
+                            st.dataframe(training_hist, use_container_width=True, hide_index=True)
+
+                # --- Project Assignments ---
+                with tab_assign:
+                    assignments = pd.read_sql_query(
+                        """SELECT a.cycle_id, c.cycle_timestamp,
+                                  a.project_name, a.project_id,
+                                  a.assignment_status AS role
+                           FROM assignment_snapshots a
+                           JOIN cycles c ON a.cycle_id = c.id
+                           WHERE a.project_manager_id = ?
+                           ORDER BY a.cycle_id DESC, a.project_name""",
+                        conn,
+                        params=(int(selected_pm_id),),
+                    )
+                    if assignments.empty:
+                        st.info("No assignment records for this PM.")
+                    else:
+                        # Unique projects across all cycles
+                        unique_projects = assignments[["project_id", "project_name"]].drop_duplicates()
+                        st.write(f"**{len(unique_projects)} unique projects** across {assignments['cycle_id'].nunique()} cycles")
+
+                        st.subheader("All Projects (All Time)")
+                        st.dataframe(unique_projects.sort_values("project_name"), use_container_width=True, hide_index=True)
+
+                        # Project assignment timeline — which projects in which cycles
+                        st.subheader("Assignment Timeline")
+                        pivot = assignments.pivot_table(
+                            index=["project_id", "project_name"],
+                            columns="cycle_id",
+                            values="role",
+                            aggfunc="first",
+                            fill_value="",
+                        ).reset_index()
+                        pivot.columns.name = None
+                        # Rename cycle columns
+                        pivot.columns = [
+                            f"Cycle {c}" if isinstance(c, (int, float)) and str(c).replace('.', '').isdigit() else c
+                            for c in pivot.columns
+                        ]
+                        st.dataframe(pivot, use_container_width=True, hide_index=True)
+
+                # --- Communications ---
+                with tab_comms:
+                    STAGE_LABELS = {
+                        0: "Missing IT PM",
+                        -1: "Escalation",
+                        -2: "Role Change",
+                        99: "Congratulations",
+                    }
+
+                    pm_comms = pd.read_sql_query(
+                        """SELECT ch.cycle_id, c.cycle_timestamp,
+                                  ch.reminder_stage, ch.email_subject,
+                                  ch.email_body, ch.communication_status,
+                                  ch.created_at
+                           FROM communication_history ch
+                           JOIN cycles c ON ch.cycle_id = c.id
+                           WHERE ch.project_manager_id = ?
+                           ORDER BY ch.cycle_id, ch.created_at""",
+                        conn,
+                        params=(int(selected_pm_id),),
+                    )
+                    if pm_comms.empty:
+                        st.info("No communications sent to this PM.")
+                    else:
+                        st.write(f"**{len(pm_comms)} communications** across {pm_comms['cycle_id'].nunique()} cycles")
+
+                        # Stage progression visualization
+                        st.subheader("Reminder Progression")
+                        for _, row in pm_comms.iterrows():
+                            stage = row["reminder_stage"]
+                            label = STAGE_LABELS.get(stage, f"Stage {stage}")
+                            if stage == 99:
+                                color = "#50C878"
+                            elif stage < 0:
+                                color = "#9B59B6"
+                            elif stage == 0:
+                                color = "#D94A6B"
+                            elif stage <= 2:
+                                color = "#E8913A"
+                            else:
+                                color = "#E74C3C"
+
+                            st.markdown(
+                                f'<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #eee;">'
+                                f'<span style="background:{color};color:white;padding:2px 10px;border-radius:4px;'
+                                f'font-size:0.8em;font-weight:bold;min-width:100px;text-align:center;">{label}</span>'
+                                f'<strong>Cycle {row["cycle_id"]}</strong>'
+                                f'<span style="color:#888;">{row["cycle_timestamp"][:10]}</span>'
+                                f'<span style="color:#555;">{row["email_subject"]}</span>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                        # Email preview
+                        st.subheader("Email Preview")
+                        email_options = []
+                        for _, row in pm_comms.iterrows():
+                            stage = row["reminder_stage"]
+                            stage_lbl = STAGE_LABELS.get(stage, f"Stage {stage}")
+                            email_options.append(f"Cycle {row['cycle_id']} | {stage_lbl} | {row['email_subject']}")
+                        selected_idx = st.selectbox(
+                            "Select email", range(len(email_options)),
+                            format_func=lambda x: email_options[x],
+                            key="pm_track_email_sel",
+                        )
+                        sel_row = pm_comms.iloc[selected_idx]
+                        st.text_input("To", pm_row["email"] or "N/A", disabled=True, key="pm_track_to")
+                        st.text_input("Subject", sel_row["email_subject"], disabled=True, key="pm_track_subj")
+                        st.text_area("Email Body", sel_row["email_body"], height=300, key="pm_track_body")
+
+                # --- Compliance ---
+                with tab_compliance:
+                    compliance_rows = pd.read_sql_query(
+                        """SELECT ts.cycle_id, c.cycle_timestamp,
+                                  ts.compliance_issues_json
+                           FROM training_snapshots ts
+                           JOIN cycles c ON ts.cycle_id = c.id
+                           WHERE ts.project_manager_id = ?
+                             AND ts.compliance_issues_json IS NOT NULL
+                             AND ts.compliance_issues_json != 'null'
+                           ORDER BY ts.cycle_id""",
+                        conn,
+                        params=(int(selected_pm_id),),
+                    )
+                    if compliance_rows.empty:
+                        st.info("No compliance issues recorded for this PM.")
+                    else:
+                        import json as json_mod
+
+                        all_issues = []
+                        for _, row in compliance_rows.iterrows():
+                            try:
+                                issues = json_mod.loads(row["compliance_issues_json"])
+                                if isinstance(issues, list):
+                                    for issue in issues:
+                                        issue["cycle_id"] = row["cycle_id"]
+                                        issue["cycle_date"] = row["cycle_timestamp"][:10]
+                                        all_issues.append(issue)
+                            except (json_mod.JSONDecodeError, TypeError):
+                                pass
+
+                        if not all_issues:
+                            st.info("No parseable compliance issues found.")
+                        else:
+                            issues_df = pd.DataFrame(all_issues)
+                            st.write(f"**{len(issues_df)} compliance issues** across {compliance_rows['cycle_id'].nunique()} cycles")
+
+                            # Summary by project
+                            if "project_id" in issues_df.columns:
+                                st.subheader("Issues by Project")
+                                project_issues = issues_df.groupby(
+                                    ["project_id", "project_name"] if "project_name" in issues_df.columns else ["project_id"]
+                                ).size().reset_index(name="Issue Count").sort_values("Issue Count", ascending=False)
+                                st.dataframe(project_issues, use_container_width=True, hide_index=True)
+
+                            # Summary by gate
+                            if "gate" in issues_df.columns:
+                                st.subheader("Issues by Gate")
+                                gate_counts = issues_df["gate"].value_counts()
+                                st.bar_chart(gate_counts)
+
+                            # Trend over cycles
+                            st.subheader("Compliance Issues Over Time")
+                            cycle_issue_counts = issues_df.groupby(["cycle_id", "cycle_date"]).size().reset_index(name="Issues")
+                            cycle_issue_counts["Label"] = cycle_issue_counts.apply(
+                                lambda r: f"Cycle {r['cycle_id']}\n{r['cycle_date']}", axis=1
+                            )
+                            st.bar_chart(cycle_issue_counts.set_index("Label")["Issues"])
+
+                            with st.expander("All Compliance Issues"):
+                                st.dataframe(issues_df, use_container_width=True, hide_index=True)
+
+                # --- Full Timeline ---
+                with tab_timeline:
+                    st.subheader("Complete Activity Timeline")
+                    st.markdown("All events for this PM in chronological order.")
+
+                    # Gather all events
+                    events = []
+
+                    # Training snapshots
+                    for _, row in training_hist.iterrows() if not training_hist.empty else []:
+                        events.append({
+                            "cycle_id": row["cycle_id"],
+                            "date": row["cycle_timestamp"][:10],
+                            "type": "Training",
+                            "detail": f"Fund: {row['fundamentals_status']}, Adv: {row['advanced_status']} | {row['eligibility_status'] or ''}",
+                        })
+
+                    # Assignments (summarized per cycle)
+                    if not assignments.empty:
+                        for cycle_id, group in assignments.groupby("cycle_id"):
+                            cycle_date = group["cycle_timestamp"].iloc[0][:10]
+                            project_list = ", ".join(group["project_name"].tolist()[:5])
+                            extra = f" +{len(group)-5} more" if len(group) > 5 else ""
+                            events.append({
+                                "cycle_id": cycle_id,
+                                "date": cycle_date,
+                                "type": "Assignment",
+                                "detail": f"{len(group)} projects: {project_list}{extra}",
+                            })
+
+                    # Communications
+                    if not pm_comms.empty:
+                        for _, row in pm_comms.iterrows():
+                            stage = row["reminder_stage"]
+                            label = STAGE_LABELS.get(stage, f"Stage {stage}")
+                            events.append({
+                                "cycle_id": row["cycle_id"],
+                                "date": row["cycle_timestamp"][:10],
+                                "type": f"Communication ({label})",
+                                "detail": row["email_subject"],
+                            })
+
+                    if not events:
+                        st.info("No activity recorded.")
+                    else:
+                        events_df = pd.DataFrame(events).sort_values(["cycle_id", "type"])
+
+                        TYPE_COLORS = {
+                            "Training": "#4A90D9",
+                            "Assignment": "#50C878",
+                        }
+
+                        for _, ev in events_df.iterrows():
+                            ev_type = ev["type"]
+                            if "Communication" in ev_type:
+                                color = "#E8913A"
+                            else:
+                                color = TYPE_COLORS.get(ev_type, "#888")
+
+                            st.markdown(
+                                f'<div style="display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid #eee;">'
+                                f'<span style="min-width:60px;font-weight:bold;">Cycle {ev["cycle_id"]}</span>'
+                                f'<span style="color:#888;min-width:85px;">{ev["date"]}</span>'
+                                f'<span style="background:{color};color:white;padding:2px 8px;border-radius:4px;'
+                                f'font-size:0.8em;min-width:120px;text-align:center;">{ev_type}</span>'
+                                f'<span style="color:#444;">{ev["detail"]}</span>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+
         finally:
             conn.close()
 

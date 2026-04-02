@@ -174,12 +174,13 @@ The system includes an optional browser-based interface built with Streamlit. La
 streamlit run streamlit_app.py
 ```
 
-The UI provides eight pages:
+The UI provides nine pages:
 
 - **Run Cycle**: Upload ePPM and Fuse Excel files (plus optional files), preview data, run a processing cycle, view summary metrics, browse output files, and download results as a zip.
 - **Reminders**: Browse generated email reminders organized by send day (Tuesday through Friday) matching the weekly comms schedule. Preview individual emails with parsed To/Subject/Body fields ready to copy into Outlook. Also browse by category (per-recipient, per-stage, missing IT PM, escalations, etc.). Includes the communication plan and summary report. Download output as a zip.
 - **Templates**: View and edit all Jinja2 email templates organized by category (training reminders, follow-up rotations, IT PM reminders, congratulations, group emails). Shows available template variables and conditionals. Includes a variable reference guide. Changes save directly to disk.
 - **Calendar**: Visual weekly send schedule showing which communication types go out on which day (color-coded cards). Communication history charts showing volume and type breakdown across cycles. Cycle run timeline with status indicators. Next-week projection based on the latest cycle results.
+- **IT PM Track Record**: Comprehensive per-PM view with search. Shows identity card with quick stats (training status, current stage, total reminders, projects, cycles tracked, certification). Five detail tabs: Training Progress (status over time with visual indicators), Project Assignments (unique projects and assignment timeline matrix), Communications (stage progression visualization with full email preview), Compliance (issues by project, gate distribution chart, trend over time), and Full Timeline (all events chronologically).
 - **Cycle History**: Browse all past cycles with detailed tabs for assignments, training status, communications, and data quality issues per cycle. Includes email preview.
 - **Communications**: Filter and search all communications across cycles. View per-PM communication timelines to see reminder progression.
 - **Data Quality**: Review unmatched PMs and other data quality issues, with filtering by issue type.

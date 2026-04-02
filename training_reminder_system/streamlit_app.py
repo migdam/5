@@ -98,7 +98,7 @@ st.sidebar.title("Training Reminder System")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Run Cycle", "Reminders", "Templates", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
+    ["Run Cycle", "Reminders", "Templates", "Calendar", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
     index=0,
 )
 
@@ -620,6 +620,272 @@ elif page == "Templates":
 | `{{stage}}` | Reminder stage number |
 | `{{recipients}}` | List of recipient dicts (name, email, missing_trainings) |
 """)
+
+
+# ===========================================================================
+# PAGE: Calendar
+# ===========================================================================
+elif page == "Calendar":
+    st.title("Communication Calendar")
+    st.markdown(
+        "View the weekly send schedule and a history of communications over time."
+    )
+
+    config = get_config()
+    comms_schedule = config.get("comms_schedule", {})
+
+    # ------------------------------------------------------------------
+    # Section 1: Weekly Send Schedule (from config)
+    # ------------------------------------------------------------------
+    st.header("Weekly Send Schedule")
+    st.markdown("Configured in `config.yaml` — defines which communications go out on which day after a Monday cycle run.")
+
+    DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+    ACTION_LABELS = {
+        "run_cycle": "Run Cycle (data processing)",
+        "training_reminders": "Training Reminders (individual, all stages)",
+        "congratulations": "Congratulations (newly certified PMs)",
+        "missing_itpm": "Missing IT PM Reminders (to PMs)",
+        "role_changed_itpm": "Role-Changed IT PM Alerts",
+        "escalations": "Escalations to Project Owners",
+        "group_emails": "Group Emails (consolidated)",
+        "nice_to_have": "Nice-to-Have Suggestions (optional)",
+    }
+    ACTION_COLORS = {
+        "run_cycle": "#4A90D9",
+        "training_reminders": "#E8913A",
+        "congratulations": "#50C878",
+        "missing_itpm": "#D94A6B",
+        "role_changed_itpm": "#9B59B6",
+        "escalations": "#E74C3C",
+        "group_emails": "#3498DB",
+        "nice_to_have": "#95A5A6",
+    }
+
+    # Visual weekly grid
+    day_cols = st.columns(5)
+    for col, day in zip(day_cols, DAY_ORDER):
+        actions = comms_schedule.get(day, [])
+        with col:
+            st.markdown(f"#### {day.capitalize()}")
+            if not actions:
+                st.caption("No actions")
+            else:
+                for action in actions:
+                    label = ACTION_LABELS.get(action, action)
+                    color = ACTION_COLORS.get(action, "#888888")
+                    st.markdown(
+                        f'<div style="background-color:{color};color:white;padding:6px 10px;'
+                        f'border-radius:6px;margin-bottom:6px;font-size:0.85em;">'
+                        f'{label}</div>',
+                        unsafe_allow_html=True,
+                    )
+
+    # Schedule table
+    with st.expander("Schedule Table"):
+        schedule_rows = []
+        for day in DAY_ORDER:
+            actions = comms_schedule.get(day, [])
+            if actions:
+                for action in actions:
+                    schedule_rows.append({
+                        "Day": day.capitalize(),
+                        "Action": ACTION_LABELS.get(action, action),
+                        "Config Key": action,
+                    })
+            else:
+                schedule_rows.append({
+                    "Day": day.capitalize(),
+                    "Action": "—",
+                    "Config Key": "—",
+                })
+        st.dataframe(pd.DataFrame(schedule_rows), use_container_width=True, hide_index=True)
+
+    # ------------------------------------------------------------------
+    # Section 2: Communication History Timeline
+    # ------------------------------------------------------------------
+    st.header("Communication History")
+
+    conn = get_db_connection(config)
+    if conn is None:
+        st.info("No database found. Run a processing cycle to see history.")
+    else:
+        try:
+            # Get cycle data
+            cycles_df = pd.read_sql_query(
+                "SELECT id, cycle_timestamp, run_status, notes FROM cycles ORDER BY id",
+                conn,
+            )
+
+            if cycles_df.empty:
+                st.info("No cycles recorded yet.")
+            else:
+                # Communication counts by cycle and stage
+                comms_df = pd.read_sql_query(
+                    """SELECT c.cycle_id,
+                              cy.cycle_timestamp,
+                              c.reminder_stage,
+                              COUNT(*) as count
+                       FROM communication_history c
+                       JOIN cycles cy ON c.cycle_id = cy.id
+                       GROUP BY c.cycle_id, c.reminder_stage
+                       ORDER BY c.cycle_id""",
+                    conn,
+                )
+
+                STAGE_LABELS = {
+                    0: "Missing IT PM",
+                    -1: "Escalation",
+                    -2: "Role Change",
+                    99: "Congratulations",
+                }
+
+                if comms_df.empty:
+                    st.info("No communications recorded yet.")
+                else:
+                    # Pivot for per-cycle breakdown
+                    comms_df["stage_label"] = comms_df["reminder_stage"].apply(
+                        lambda s: STAGE_LABELS.get(s, f"Stage {s}")
+                    )
+                    pivot_df = comms_df.pivot_table(
+                        index=["cycle_id", "cycle_timestamp"],
+                        columns="stage_label",
+                        values="count",
+                        fill_value=0,
+                        aggfunc="sum",
+                    ).reset_index()
+                    pivot_df.columns.name = None
+                    pivot_df = pivot_df.rename(columns={"cycle_id": "Cycle", "cycle_timestamp": "Date"})
+
+                    st.subheader("Communications per Cycle")
+                    st.dataframe(pivot_df, use_container_width=True, hide_index=True)
+
+                    # Bar chart
+                    st.subheader("Communication Volume Over Time")
+                    cycle_totals = comms_df.groupby(["cycle_id", "cycle_timestamp"])["count"].sum().reset_index()
+                    cycle_totals.columns = ["Cycle", "Date", "Total Communications"]
+                    cycle_totals["Cycle Label"] = cycle_totals.apply(
+                        lambda r: f"Cycle {r['Cycle']}\n{r['Date'][:10]}", axis=1
+                    )
+                    st.bar_chart(
+                        cycle_totals.set_index("Cycle Label")["Total Communications"],
+                    )
+
+                    # Stage distribution chart
+                    st.subheader("Communication Types Across All Cycles")
+                    stage_totals = comms_df.groupby("stage_label")["count"].sum().sort_values(ascending=False)
+                    st.bar_chart(stage_totals)
+
+                # ----------------------------------------------------------
+                # Section 3: Cycle Timeline
+                # ----------------------------------------------------------
+                st.subheader("Cycle Run Timeline")
+                cycles_df["cycle_date"] = pd.to_datetime(cycles_df["cycle_timestamp"]).dt.strftime("%Y-%m-%d %H:%M")
+
+                for _, cycle in cycles_df.iterrows():
+                    status_icon = {"completed": "OK", "failed": "FAIL", "running": "..."}.get(
+                        cycle["run_status"], "?"
+                    )
+                    status_color = {"completed": "green", "failed": "red", "running": "orange"}.get(
+                        cycle["run_status"], "gray"
+                    )
+
+                    # Get communication count for this cycle
+                    comm_count_row = conn.execute(
+                        "SELECT COUNT(*) as cnt FROM communication_history WHERE cycle_id = ?",
+                        (cycle["id"],),
+                    ).fetchone()
+                    comm_count = comm_count_row["cnt"] if comm_count_row else 0
+
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;gap:12px;padding:8px 0;'
+                        f'border-bottom:1px solid #eee;">'
+                        f'<span style="background-color:{status_color};color:white;padding:2px 8px;'
+                        f'border-radius:4px;font-size:0.8em;font-weight:bold;">{status_icon}</span>'
+                        f'<strong>Cycle {cycle["id"]}</strong>'
+                        f'<span style="color:#666;">{cycle["cycle_date"]}</span>'
+                        f'<span style="color:#888;">{comm_count} communications</span>'
+                        f'<span style="color:#aaa;font-size:0.85em;">{cycle["notes"] or ""}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                # ----------------------------------------------------------
+                # Section 4: Upcoming Week Projection
+                # ----------------------------------------------------------
+                st.header("Next Week Projection")
+                st.markdown(
+                    "Based on the latest cycle results, here's what the next send week would look like."
+                )
+
+                # Get latest completed cycle's comms breakdown
+                latest_cycle = cycles_df[cycles_df["run_status"] == "completed"]
+                if latest_cycle.empty:
+                    st.info("No completed cycles to project from.")
+                else:
+                    latest_id = latest_cycle.iloc[-1]["id"]
+                    latest_comms = pd.read_sql_query(
+                        """SELECT reminder_stage, COUNT(*) as count
+                           FROM communication_history
+                           WHERE cycle_id = ?
+                           GROUP BY reminder_stage""",
+                        conn,
+                        params=(int(latest_id),),
+                    )
+
+                    # Map stages to schedule actions
+                    stage_to_action = {
+                        # Positive stages are training reminders
+                        0: "missing_itpm",
+                        -1: "escalations",
+                        -2: "role_changed_itpm",
+                        99: "congratulations",
+                    }
+                    action_counts = {}
+                    for _, row in latest_comms.iterrows():
+                        stage = row["reminder_stage"]
+                        if stage > 0:
+                            action = "training_reminders"
+                        else:
+                            action = stage_to_action.get(stage, "training_reminders")
+                        action_counts[action] = action_counts.get(action, 0) + row["count"]
+
+                    from datetime import timedelta
+                    today = datetime.now()
+                    # Find next Monday
+                    days_to_monday = (7 - today.weekday()) % 7
+                    if days_to_monday == 0:
+                        next_monday = today
+                    else:
+                        next_monday = today + timedelta(days=days_to_monday)
+
+                    projection_cols = st.columns(5)
+                    for col, day_idx, day in zip(projection_cols, range(5), DAY_ORDER):
+                        day_date = next_monday + timedelta(days=day_idx)
+                        actions = comms_schedule.get(day, [])
+                        with col:
+                            st.markdown(f"**{day.capitalize()}**")
+                            st.caption(day_date.strftime("%b %d"))
+                            if not actions:
+                                st.write("—")
+                            else:
+                                for action in actions:
+                                    count = action_counts.get(action, 0)
+                                    label = ACTION_LABELS.get(action, action).split("(")[0].strip()
+                                    if action == "run_cycle":
+                                        st.markdown(f"*{label}*")
+                                    elif count > 0:
+                                        st.markdown(f"**{count}** {label}")
+                                    else:
+                                        st.caption(f"0 {label}")
+
+                    st.caption(
+                        f"Based on Cycle {latest_id} "
+                        f"({latest_cycle.iloc[-1]['cycle_timestamp'][:10]}). "
+                        f"Actual counts depend on the next cycle run."
+                    )
+        finally:
+            conn.close()
 
 
 # ===========================================================================

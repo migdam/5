@@ -174,10 +174,11 @@ The system includes an optional browser-based interface built with Streamlit. La
 streamlit run streamlit_app.py
 ```
 
-The UI provides six pages:
+The UI provides seven pages:
 
 - **Run Cycle**: Upload ePPM and Fuse Excel files (plus optional files), preview data, run a processing cycle, view summary metrics, browse output files, and download results as a zip.
 - **Reminders**: Browse generated email reminders organized by send day (Tuesday through Friday) matching the weekly comms schedule. Preview individual emails with parsed To/Subject/Body fields ready to copy into Outlook. Also browse by category (per-recipient, per-stage, missing IT PM, escalations, etc.). Includes the communication plan and summary report. Download output as a zip.
+- **Templates**: View and edit all Jinja2 email templates organized by category (training reminders, follow-up rotations, IT PM reminders, congratulations, group emails). Shows available template variables and conditionals. Includes a variable reference guide. Changes save directly to disk.
 - **Cycle History**: Browse all past cycles with detailed tabs for assignments, training status, communications, and data quality issues per cycle. Includes email preview.
 - **Communications**: Filter and search all communications across cycles. View per-PM communication timelines to see reminder progression.
 - **Data Quality**: Review unmatched PMs and other data quality issues, with filtering by issue type.

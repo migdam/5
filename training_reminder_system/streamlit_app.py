@@ -98,7 +98,7 @@ st.sidebar.title("Training Reminder System")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Run Cycle", "Reminders", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
+    ["Run Cycle", "Reminders", "Templates", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
     index=0,
 )
 
@@ -466,6 +466,160 @@ elif page == "Reminders":
                                 st.text_area("Email Body (select and copy)", email_body, height=300, key=f"cat_body_{selected_category}_{selected_file}")
                             else:
                                 st.text_area("Full Content", content, height=300, key=f"cat_full_{selected_category}_{selected_file}")
+
+
+# ===========================================================================
+# PAGE: Templates
+# ===========================================================================
+elif page == "Templates":
+    st.title("Email Templates")
+    st.markdown(
+        "View and edit the Jinja2 email templates used for generating reminders. "
+        "Changes are saved directly to disk and take effect on the next cycle run."
+    )
+
+    config = get_config()
+    templates_dir = os.path.join(PROJECT_ROOT, "templates")
+    templates_config = config.get("templates", {})
+
+    # Build a mapping: display name -> (config key, file path)
+    TEMPLATE_CATEGORIES = {
+        "Training Reminders": [
+            ("stage_1", "Stage 1 — Friendly Awareness"),
+            ("stage_2", "Stage 2 — Benefits-Oriented Encouragement"),
+            ("stage_3", "Stage 3 — Persuasive, Action-Oriented"),
+            ("default", "Stage 4+ — Default / Reusable"),
+        ],
+        "Follow-up Rotations (Stage 4+)": [
+            ("followup_0", "Follow-up Angle: Compliance / Project-Focused"),
+            ("followup_1", "Follow-up Angle: Peer / Social Proof"),
+            ("followup_2", "Follow-up Angle: Support / Help Offer"),
+        ],
+        "IT PM Reminders": [
+            ("missing_itpm", "Missing IT PM — Reminder to PM"),
+            ("missing_itpm_escalation", "Missing IT PM — Escalation to Owner"),
+            ("role_changed_itpm", "Role-Changed IT PM Alert"),
+        ],
+        "Other": [
+            ("congratulations", "Congratulations — Newly Certified"),
+            ("group_training", "Group Training Reminder"),
+            ("group_missing_itpm", "Group Missing IT PM Reminder"),
+        ],
+    }
+
+    # Sidebar-style category selection
+    category = st.selectbox("Category", list(TEMPLATE_CATEGORIES.keys()))
+    templates_in_category = TEMPLATE_CATEGORIES[category]
+
+    template_key, template_label = st.selectbox(
+        "Template",
+        templates_in_category,
+        format_func=lambda x: x[1],
+    )
+
+    # Resolve file path from config
+    template_rel_path = templates_config.get(template_key, "")
+    template_path = os.path.join(PROJECT_ROOT, template_rel_path) if template_rel_path else ""
+
+    if not template_path or not os.path.exists(template_path):
+        st.warning(f"Template file not found: `{template_rel_path}`")
+    else:
+        st.caption(f"File: `{template_rel_path}`")
+
+        with open(template_path, "r", encoding="utf-8") as f:
+            original_content = f.read()
+
+        # Parse subject line (first line starting with "Subject:")
+        lines = original_content.split("\n")
+        subject_line = ""
+        body_lines = lines
+        if lines and lines[0].startswith("Subject:"):
+            subject_line = lines[0][len("Subject:"):].strip()
+            body_lines = lines[1:]
+
+        if subject_line:
+            st.text_input("Subject Line", subject_line, disabled=True, key=f"tpl_subj_{template_key}")
+
+        # Show available variables
+        import re
+        variables = sorted(set(re.findall(r"\{\{(\s*[\w.]+\s*)\}\}", original_content)))
+        variables = [v.strip() for v in variables]
+        conditionals = sorted(set(re.findall(r"\{%\s*if\s+([\w.]+)\s*%\}", original_content)))
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if variables:
+                st.markdown("**Template Variables:** " + ", ".join(f"`{{{{{v}}}}}`" for v in variables))
+        with col2:
+            if conditionals:
+                st.markdown("**Conditionals:** " + ", ".join(f"`{c}`" for c in conditionals))
+
+        # Editable text area
+        edited_content = st.text_area(
+            "Template Content",
+            original_content,
+            height=400,
+            key=f"tpl_edit_{template_key}",
+        )
+
+        # Save button
+        col_save, col_revert = st.columns([1, 4])
+        with col_save:
+            if st.button("Save Changes", type="primary", key=f"tpl_save_{template_key}"):
+                if edited_content != original_content:
+                    with open(template_path, "w", encoding="utf-8") as f:
+                        f.write(edited_content)
+                    st.success(f"Template saved: `{template_rel_path}`")
+                    st.rerun()
+                else:
+                    st.info("No changes to save.")
+        with col_revert:
+            if edited_content != original_content:
+                st.warning("You have unsaved changes.")
+
+    # Reference: all template variables
+    with st.expander("Template Variable Reference"):
+        st.markdown("""
+**Common variables available in all templates:**
+
+| Variable | Description |
+|----------|-------------|
+| `{{name}}` | PM's full name |
+| `{{links.learning_platform}}` | URL to the learning platform |
+| `{{links.learning_platform_name}}` | Name of the learning platform |
+| `{{links.eppm_tool}}` | URL to ePPM |
+| `{{links.eppm_tool_name}}` | Name of ePPM tool |
+| `{{links.pm_standard_page}}` | URL to PM Standard page |
+| `{{links.pm_standard_name}}` | Name of PM Standard |
+| `{{links.viva_engage_standard}}` | URL to Viva Engage community |
+| `{{links.viva_engage_name}}` | Name of Viva Engage community |
+
+**Training reminder variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `{{missing_both}}` | True if both Fundamentals and Advanced are missing |
+| `{{completed_fundamentals}}` | True if Fundamentals is done but Advanced is not |
+| `{{missing_fundamentals}}` | True if only Fundamentals is missing |
+| `{{has_compliance_issues}}` | True if PM has projects with compliance issues |
+| `{{compliance_issues}}` | List of compliance issue dicts (project_name, project_id, gate, etc.) |
+| `{{has_compliance_improvements}}` | True if compliance improved since last cycle |
+| `{{compliance_improvements}}` | List of improvement dicts |
+
+**Missing IT PM variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `{{projects}}` | List of projects missing IT PM (project_name, project_id) |
+| `{{project_count}}` | Number of affected projects |
+
+**Group email variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `{{stage}}` | Reminder stage number |
+| `{{recipients}}` | List of recipient dicts (name, email, missing_trainings) |
+""")
 
 
 # ===========================================================================

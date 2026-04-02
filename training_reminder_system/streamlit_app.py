@@ -98,15 +98,314 @@ st.sidebar.title("Training Reminder System")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Run Cycle", "Reminders", "Templates", "Calendar", "IT PM Track Record", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
+    ["Dashboard", "Run Cycle", "Reminders", "Templates", "Calendar", "IT PM Track Record", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
     index=0,
 )
 
 
 # ===========================================================================
+# PAGE: Dashboard
+# ===========================================================================
+if page == "Dashboard":
+    st.title("Dashboard")
+    st.markdown("Key metrics tracking IT PM certification progress, compliance, and reminder effectiveness.")
+
+    config = get_config()
+    conn = get_db_connection(config)
+
+    if conn is None:
+        st.info("No database found. Run a processing cycle first.")
+    else:
+        try:
+            cycles_df = pd.read_sql_query(
+                "SELECT id, cycle_timestamp FROM cycles WHERE run_status = 'completed' ORDER BY id",
+                conn,
+            )
+            if cycles_df.empty:
+                st.info("No completed cycles yet. Run a processing cycle to see metrics.")
+            else:
+                cycles_df["date"] = pd.to_datetime(cycles_df["cycle_timestamp"]).dt.strftime("%Y-%m-%d")
+
+                # ==============================================================
+                # METRIC 1: % IT PMs Certified Over Time
+                # ==============================================================
+                st.header("IT PM Certification Rate Over Time")
+
+                cert_data = []
+                for _, cycle in cycles_df.iterrows():
+                    cid = int(cycle["id"])
+                    row = conn.execute(
+                        """SELECT
+                               COUNT(*) as total,
+                               SUM(CASE WHEN overall_training_status = 'complete' THEN 1 ELSE 0 END) as certified
+                           FROM training_snapshots
+                           WHERE cycle_id = ?""",
+                        (cid,),
+                    ).fetchone()
+                    total = row["total"] if row["total"] else 0
+                    certified = row["certified"] if row["certified"] else 0
+                    pct = round(certified / total * 100, 1) if total > 0 else 0.0
+                    cert_data.append({
+                        "Cycle": f"Cycle {cid}",
+                        "Date": cycle["date"],
+                        "Certified": certified,
+                        "Not Certified": total - certified,
+                        "Total PMs": total,
+                        "% Certified": pct,
+                    })
+
+                cert_df = pd.DataFrame(cert_data)
+
+                if not cert_df.empty:
+                    # KPI cards
+                    latest = cert_df.iloc[-1]
+                    first = cert_df.iloc[0]
+                    delta_pct = latest["% Certified"] - first["% Certified"]
+
+                    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+                    kpi1.metric("Current Certification Rate", f"{latest['% Certified']}%",
+                                delta=f"{delta_pct:+.1f}pp" if len(cert_df) > 1 else None)
+                    kpi2.metric("Certified PMs", int(latest["Certified"]))
+                    kpi3.metric("Not Certified", int(latest["Not Certified"]))
+                    kpi4.metric("Total PMs Tracked", int(latest["Total PMs"]))
+
+                    # Line chart — % certified over time
+                    chart_df = cert_df.set_index("Cycle")[["% Certified"]]
+                    st.line_chart(chart_df, height=300)
+
+                    # Stacked view
+                    with st.expander("Detailed Breakdown per Cycle"):
+                        st.dataframe(cert_df, use_container_width=True, hide_index=True)
+
+                # ==============================================================
+                # METRIC 2: % Projects Not Compliant Over Time
+                # ==============================================================
+                st.header("Project Compliance Rate Over Time")
+
+                compliance_data = []
+                for _, cycle in cycles_df.iterrows():
+                    cid = int(cycle["id"])
+                    # Get all PMs with compliance data for this cycle
+                    rows = conn.execute(
+                        """SELECT compliance_issues_json
+                           FROM training_snapshots
+                           WHERE cycle_id = ? AND compliance_issues_json IS NOT NULL
+                             AND compliance_issues_json != 'null'""",
+                        (cid,),
+                    ).fetchall()
+
+                    # Collect unique projects with issues
+                    import json as json_mod
+                    projects_with_issues = set()
+                    for r in rows:
+                        try:
+                            issues = json_mod.loads(r["compliance_issues_json"])
+                            if isinstance(issues, list):
+                                for issue in issues:
+                                    pid = issue.get("project_id")
+                                    if pid:
+                                        projects_with_issues.add(pid)
+                        except (json_mod.JSONDecodeError, TypeError):
+                            pass
+
+                    # Total unique projects in this cycle
+                    total_projects_row = conn.execute(
+                        "SELECT COUNT(DISTINCT project_id) as cnt FROM assignment_snapshots WHERE cycle_id = ?",
+                        (cid,),
+                    ).fetchone()
+                    total_projects = total_projects_row["cnt"] if total_projects_row else 0
+                    non_compliant = len(projects_with_issues)
+                    compliant = total_projects - non_compliant if total_projects > non_compliant else 0
+                    pct_non_compliant = round(non_compliant / total_projects * 100, 1) if total_projects > 0 else 0.0
+
+                    compliance_data.append({
+                        "Cycle": f"Cycle {cid}",
+                        "Date": cycle["date"],
+                        "Total Projects": total_projects,
+                        "Non-Compliant": non_compliant,
+                        "Compliant": compliant,
+                        "% Non-Compliant": pct_non_compliant,
+                        "% Compliant": round(100 - pct_non_compliant, 1),
+                    })
+
+                comp_df = pd.DataFrame(compliance_data)
+
+                if not comp_df.empty and comp_df["Total Projects"].sum() > 0:
+                    latest_c = comp_df.iloc[-1]
+                    first_c = comp_df.iloc[0]
+                    delta_nc = latest_c["% Non-Compliant"] - first_c["% Non-Compliant"]
+
+                    kpi_c1, kpi_c2, kpi_c3, kpi_c4 = st.columns(4)
+                    kpi_c1.metric("Non-Compliant Rate", f"{latest_c['% Non-Compliant']}%",
+                                  delta=f"{delta_nc:+.1f}pp" if len(comp_df) > 1 else None,
+                                  delta_color="inverse")
+                    kpi_c2.metric("Non-Compliant Projects", int(latest_c["Non-Compliant"]))
+                    kpi_c3.metric("Compliant Projects", int(latest_c["Compliant"]))
+                    kpi_c4.metric("Total Projects", int(latest_c["Total Projects"]))
+
+                    chart_comp = comp_df.set_index("Cycle")[["% Non-Compliant", "% Compliant"]]
+                    st.line_chart(chart_comp, height=300)
+
+                    with st.expander("Detailed Breakdown per Cycle"):
+                        st.dataframe(comp_df, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No compliance data available yet.")
+
+                # ==============================================================
+                # METRIC 3: Avg Number of Reminders to Certification
+                # ==============================================================
+                st.header("Reminders to Certification")
+                st.markdown("How many training reminders does it take before a PM completes certification?")
+
+                # Find PMs who received congratulations (stage 99) — they completed training
+                certified_pms = conn.execute(
+                    """SELECT DISTINCT project_manager_id
+                       FROM communication_history
+                       WHERE reminder_stage = 99"""
+                ).fetchall()
+
+                reminders_to_cert = []
+                for pm_row_cert in certified_pms:
+                    pm_id = pm_row_cert["project_manager_id"]
+                    # Count training reminders (stage 1-98) sent before the congratulations
+                    congrats_cycle = conn.execute(
+                        """SELECT MIN(cycle_id) as first_congrats_cycle
+                           FROM communication_history
+                           WHERE project_manager_id = ? AND reminder_stage = 99""",
+                        (pm_id,),
+                    ).fetchone()
+                    if congrats_cycle and congrats_cycle["first_congrats_cycle"]:
+                        reminder_count = conn.execute(
+                            """SELECT COUNT(*) as cnt
+                               FROM communication_history
+                               WHERE project_manager_id = ?
+                                 AND reminder_stage > 0 AND reminder_stage < 99
+                                 AND cycle_id < ?""",
+                            (pm_id, congrats_cycle["first_congrats_cycle"]),
+                        ).fetchone()["cnt"]
+                        pm_name = conn.execute(
+                            "SELECT full_name FROM project_managers WHERE id = ?", (pm_id,)
+                        ).fetchone()
+                        reminders_to_cert.append({
+                            "PM": pm_name["full_name"] if pm_name else f"PM #{pm_id}",
+                            "Reminders Before Certification": reminder_count,
+                        })
+
+                if reminders_to_cert:
+                    rtc_df = pd.DataFrame(reminders_to_cert)
+                    avg_reminders = rtc_df["Reminders Before Certification"].mean()
+                    median_reminders = rtc_df["Reminders Before Certification"].median()
+                    max_reminders = rtc_df["Reminders Before Certification"].max()
+                    min_reminders = rtc_df["Reminders Before Certification"].min()
+
+                    kpi_r1, kpi_r2, kpi_r3, kpi_r4 = st.columns(4)
+                    kpi_r1.metric("Average Reminders", f"{avg_reminders:.1f}")
+                    kpi_r2.metric("Median Reminders", f"{median_reminders:.0f}")
+                    kpi_r3.metric("Min", int(min_reminders))
+                    kpi_r4.metric("Max", int(max_reminders))
+
+                    # Distribution histogram
+                    st.subheader("Distribution")
+                    dist = rtc_df["Reminders Before Certification"].value_counts().sort_index()
+                    dist.index = [f"{int(x)} reminders" for x in dist.index]
+                    st.bar_chart(dist)
+
+                    with st.expander(f"Per-PM Detail ({len(rtc_df)} certified PMs)"):
+                        st.dataframe(
+                            rtc_df.sort_values("Reminders Before Certification"),
+                            use_container_width=True, hide_index=True,
+                        )
+                else:
+                    st.info("No PMs have been certified yet (no congratulations sent). Metrics will appear after PMs complete training.")
+
+                # ==============================================================
+                # METRIC 4: Time to Certification from First Reminder
+                # ==============================================================
+                st.header("Time to Certification")
+                st.markdown("Elapsed time between the first training reminder and certification completion.")
+
+                time_to_cert = []
+                for pm_row_cert in certified_pms:
+                    pm_id = pm_row_cert["project_manager_id"]
+
+                    # First training reminder date
+                    first_reminder = conn.execute(
+                        """SELECT MIN(ch.created_at) as first_date
+                           FROM communication_history ch
+                           WHERE ch.project_manager_id = ?
+                             AND ch.reminder_stage > 0 AND ch.reminder_stage < 99""",
+                        (pm_id,),
+                    ).fetchone()
+
+                    # Congratulations date
+                    congrats = conn.execute(
+                        """SELECT MIN(ch.created_at) as congrats_date
+                           FROM communication_history ch
+                           WHERE ch.project_manager_id = ?
+                             AND ch.reminder_stage = 99""",
+                        (pm_id,),
+                    ).fetchone()
+
+                    if first_reminder and congrats and first_reminder["first_date"] and congrats["congrats_date"]:
+                        try:
+                            # Handle both ISO and standard datetime formats
+                            first_dt = pd.to_datetime(first_reminder["first_date"])
+                            congrats_dt = pd.to_datetime(congrats["congrats_date"])
+                            days_elapsed = (congrats_dt - first_dt).days
+                            if days_elapsed >= 0:
+                                pm_name = conn.execute(
+                                    "SELECT full_name FROM project_managers WHERE id = ?", (pm_id,)
+                                ).fetchone()
+                                time_to_cert.append({
+                                    "PM": pm_name["full_name"] if pm_name else f"PM #{pm_id}",
+                                    "First Reminder": first_dt.strftime("%Y-%m-%d"),
+                                    "Certified": congrats_dt.strftime("%Y-%m-%d"),
+                                    "Days to Certification": days_elapsed,
+                                    "Weeks": round(days_elapsed / 7, 1),
+                                })
+                        except (ValueError, TypeError):
+                            pass
+
+                if time_to_cert:
+                    ttc_df = pd.DataFrame(time_to_cert)
+                    avg_days = ttc_df["Days to Certification"].mean()
+                    median_days = ttc_df["Days to Certification"].median()
+                    max_days = ttc_df["Days to Certification"].max()
+                    min_days = ttc_df["Days to Certification"].min()
+
+                    kpi_t1, kpi_t2, kpi_t3, kpi_t4 = st.columns(4)
+                    kpi_t1.metric("Average", f"{avg_days:.0f} days")
+                    kpi_t2.metric("Median", f"{median_days:.0f} days")
+                    kpi_t3.metric("Fastest", f"{min_days} days")
+                    kpi_t4.metric("Slowest", f"{max_days} days")
+
+                    # Distribution
+                    st.subheader("Distribution")
+                    # Bucket into week ranges
+                    ttc_df["Week Bucket"] = ttc_df["Days to Certification"].apply(
+                        lambda d: f"{(d // 7) * 7}-{(d // 7) * 7 + 6} days"
+                        if d >= 7 else "0-6 days"
+                    )
+                    week_dist = ttc_df["Days to Certification"].value_counts().sort_index()
+                    week_dist.index = [f"{int(x)} days" for x in week_dist.index]
+                    st.bar_chart(week_dist)
+
+                    with st.expander(f"Per-PM Detail ({len(ttc_df)} certified PMs)"):
+                        st.dataframe(
+                            ttc_df.sort_values("Days to Certification"),
+                            use_container_width=True, hide_index=True,
+                        )
+                else:
+                    st.info("No time-to-certification data available yet. Metrics will appear after PMs complete training following reminders.")
+
+        finally:
+            conn.close()
+
+
+# ===========================================================================
 # PAGE: Run Cycle
 # ===========================================================================
-if page == "Run Cycle":
+elif page == "Run Cycle":
     st.title("Run Processing Cycle")
     st.markdown(
         "Upload input Excel files and run a processing cycle to generate training reminders."

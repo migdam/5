@@ -174,8 +174,9 @@ The system includes an optional browser-based interface built with Streamlit. La
 streamlit run streamlit_app.py
 ```
 
-The UI provides nine pages:
+The UI provides ten pages:
 
+- **Dashboard**: Key metrics with KPI cards and charts — IT PM certification rate over time (line chart), project compliance rate over time (line chart with inverse delta coloring), average/median/min/max reminders to certification (distribution histogram), and time to certification from first reminder (days distribution chart). Each metric includes per-PM detail tables.
 - **Run Cycle**: Upload ePPM and Fuse Excel files (plus optional files), preview data, run a processing cycle, view summary metrics, browse output files, and download results as a zip.
 - **Reminders**: Browse generated email reminders organized by send day (Tuesday through Friday) matching the weekly comms schedule. Preview individual emails with parsed To/Subject/Body fields ready to copy into Outlook. Also browse by category (per-recipient, per-stage, missing IT PM, escalations, etc.). Includes the communication plan and summary report. Download output as a zip.
 - **Templates**: View and edit all Jinja2 email templates organized by category (training reminders, follow-up rotations, IT PM reminders, congratulations, group emails). Shows available template variables and conditionals. Includes a variable reference guide. Changes save directly to disk.

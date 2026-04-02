@@ -286,7 +286,7 @@ def build_portfolio_pool(people, rng, pool_size=25):
 def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
                        completed_project_ids=None, new_project_start=0,
                        stage_overrides=None, cancelled_project_ids=None,
-                       compliance_state=None):
+                       compliance_state=None, compliance_noise=None):
     """Generate ePPM project assignment data.
 
     Args:
@@ -299,7 +299,14 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
         stage_overrides: Dict of project_id -> new_stage for evolution.
         compliance_state: Dict of project_id -> {gate: status} tracking compliance
             evolution across cycles. Mutated in place.
+        compliance_noise: Dict with noise rates: late_discovery, data_correction,
+            stale_rollup. Defaults to 0.03, 0.04, 0.05.
     """
+    if compliance_noise is None:
+        compliance_noise = {}
+    noise_late_discovery = compliance_noise.get("late_discovery", 0.03)
+    noise_data_correction = compliance_noise.get("data_correction", 0.04)
+    noise_stale_rollup = compliance_noise.get("stale_rollup", 0.05)
     if completed_project_ids is None:
         completed_project_ids = set()
     if stage_overrides is None:
@@ -443,20 +450,18 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
                 # First time: assign initial compliance (weighted toward non-compliant)
                 val = rng.choices(COMPLIANCE_VALUES, weights=[0.25, 0.40, 0.35])[0]
             elif prev == "Full compliance":
-                # 3% late-discovery: audit finds issues at a gate that was
-                # previously marked fully compliant (e.g., missing sign-off
-                # found during a later gate review)
-                if rng.random() < 0.03:
+                # Late-discovery: audit finds issues at a gate that was
+                # previously marked fully compliant
+                if rng.random() < noise_late_discovery:
                     val = rng.choice(["Partially compliant", "Non-compliant"])
                 else:
                     val = "Full compliance"
             elif prev == "Partially compliant":
                 roll = rng.random()
                 if roll < 0.30:
-                    # 30% improve to Full
                     val = "Full compliance"
-                elif roll < 0.34:
-                    # 4% data correction — downgraded after closer review
+                elif roll < 0.30 + noise_data_correction:
+                    # Data correction — downgraded after closer review
                     val = "Non-compliant"
                 else:
                     val = "Partially compliant"
@@ -497,13 +502,12 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
                 # 5% stale rollup: overall hasn't been refreshed after a
                 # gate-level regression, so it still says Full even though
                 # a gate was downgraded, or vice versa
-                proj_compliance = "Partially compliant" if rng.random() < 0.05 else "Full compliance"
+                proj_compliance = "Partially compliant" if rng.random() < noise_stale_rollup else "Full compliance"
             elif prev_proj == "Partially compliant":
                 roll = rng.random()
                 if roll < 0.25:
                     proj_compliance = "Full compliance"
-                elif roll < 0.29:
-                    # 4% data correction
+                elif roll < 0.25 + noise_data_correction:
                     proj_compliance = "Non-compliant"
                 else:
                     proj_compliance = "Partially compliant"
@@ -667,52 +671,88 @@ def write_excel(rows, filepath, sheet_name="Sheet1"):
 # Multi-Cycle Generation
 # ============================================================
 
-def generate_all_cycles(rng, max_cycles=30):
+# Default generation parameters — override via CLI or by passing a dict
+DEFAULT_PARAMS = {
+    # Population sizes
+    "num_people": 350,              # Total synthetic people in master list
+    "num_projects": 250,            # Initial number of projects
+    "portfolio_pool_size": 25,      # IT Portfolio Managers reused across projects
+    "initial_eppm_pool": 160,       # People in initial ePPM pool (non-contractors)
+    "extra_fuse_people": 60,        # Fuse-only background learners
+
+    # Overlap and matching
+    "overlap_rate": 0.35,           # % of ePPM people also in Fuse (matchable)
+    "alias_rate": 0.065,            # % of people with email domain aliases
+    "role_change_rate": 0.10,       # % of overlap people who change roles
+    "maiden_name_count": 4,         # Number of maiden name alias cases
+    "email_alias_count": 5,         # Number of email domain alias cases
+
+    # Project evolution
+    "gate_advance_prob": 1.0 / 13,  # Per-project per-week gate advancement (~7.7%)
+    "cancel_rate_min": 0.005,       # Min % of active projects cancelled per cycle
+    "cancel_rate_max": 0.015,       # Max % of active projects cancelled per cycle
+
+    # Training completion speed (multiplier; 1.0 = default pace)
+    "training_speed": 1.0,          # >1 = faster certification, <1 = slower
+
+    # Compliance noise rates
+    "compliance_late_discovery_rate": 0.03,   # Audit finds issues at previously Full gate
+    "compliance_data_correction_rate": 0.04,  # Partially downgraded to Non-compliant
+    "compliance_stale_rollup_rate": 0.05,     # Overall contradicts gate-level status
+
+    # Skip path: complete Advanced without Fundamentals
+    "skip_fundamentals_rate": 0.08,  # % of people who skip Fundamentals
+
+    # New PM waves: list of (week, new_projects, new_pms)
+    # Set to [] to disable new PM arrivals
+    "new_pm_waves": [
+        (3, 8, 4), (4, 8, 4),
+        (7, 6, 3), (8, 6, 3),
+        (11, 5, 3), (12, 5, 3),
+        (15, 4, 2), (16, 4, 2),
+        (19, 3, 2),
+    ],
+}
+
+
+def generate_all_cycles(rng, max_cycles=30, params=None):
     """Generate cycles until ALL PMs are fully certified.
 
-    Each cycle:
-    - Existing PMs gradually complete training (fundamentals first, then advanced)
-    - New projects appear with new PMs who also need certification
-    - Some existing projects complete
-    - Training completion rates increase until 100%
-
-    New PM waves:
-    - Cycles 2-4: 8-15 new PMs per cycle (from fresh people pool)
-    - Cycles 5-7: 5-8 new PMs per cycle
-    - Cycles 8+: 2-4 new PMs per cycle (tapering off)
-    - All new PMs must also get certified before simulation ends
+    Args:
+        rng: Random number generator.
+        max_cycles: Maximum number of weekly cycles to generate.
+        params: Dict of generation parameters (see DEFAULT_PARAMS).
+            Any key not provided falls back to the default value.
     """
-    # Build large people master (enough for initial + new PMs across cycles)
-    people = build_people_master(rng, num_people=350)
-    alias_ids = assign_aliases(people, rng)
-    portfolio_pool = build_portfolio_pool(people, rng, pool_size=25)
+    p = dict(DEFAULT_PARAMS)
+    if params:
+        p.update(params)
 
-    non_contractor = [p for p in people if p["employment_type"] != "Contractor"]
-    people_by_id = {p["person_id"]: p for p in people}
+    people = build_people_master(rng, num_people=p["num_people"])
+    alias_ids = assign_aliases(people, rng, rate=p["alias_rate"])
+    portfolio_pool = build_portfolio_pool(people, rng, pool_size=p["portfolio_pool_size"])
 
-    # Initial ePPM people pool (first 160 non-contractors)
-    initial_eppm_pool = non_contractor[:160]
-    # Reserve remaining for new PMs in later cycles
-    new_pm_reserve = non_contractor[160:]
+    non_contractor = [p_person for p_person in people if p_person["employment_type"] != "Contractor"]
+    people_by_id = {p_person["person_id"]: p_person for p_person in people}
+
+    initial_pool_size = min(p["initial_eppm_pool"], len(non_contractor))
+    initial_eppm_pool = non_contractor[:initial_pool_size]
+    new_pm_reserve = non_contractor[initial_pool_size:]
     rng.shuffle(new_pm_reserve)
 
-    # Select overlap people (35% of initial pool will also be in Fuse)
-    overlap_count = int(len(initial_eppm_pool) * 0.35)
+    overlap_count = int(len(initial_eppm_pool) * p["overlap_rate"])
     overlap_people = rng.sample(initial_eppm_pool, overlap_count)
-    overlap_ids = {p["person_id"] for p in overlap_people}
+    overlap_ids = {op["person_id"] for op in overlap_people}
 
-    # Select people who will be reported as having changed roles via CSV
-    # These people stay in the people master with PM positions (Fuse won't detect them)
-    # but they appear in the manually maintained role_changes.xlsx
-    role_change_pool_count = max(4, int(len(overlap_people) * 0.10))
+    role_change_pool_count = max(4, int(len(overlap_people) * p["role_change_rate"]))
     role_change_pool = rng.sample(overlap_people, role_change_pool_count)
-    role_change_pool_ids = {p["person_id"] for p in role_change_pool}
+    role_change_pool_ids = {rc["person_id"] for rc in role_change_pool}
 
-    # Extra Fuse-only people (stable background learners)
-    fuse_only_candidates = [p for p in people if p["person_id"] not in overlap_ids
-                            and p not in initial_eppm_pool]
-    extra_fuse = rng.sample(fuse_only_candidates, min(60, len(fuse_only_candidates)))
-    extra_fuse_ids = {p["person_id"] for p in extra_fuse}
+    fuse_only_candidates = [fp for fp in people if fp["person_id"] not in overlap_ids
+                            and fp not in initial_eppm_pool]
+    extra_fuse_count = min(p["extra_fuse_people"], len(fuse_only_candidates))
+    extra_fuse = rng.sample(fuse_only_candidates, extra_fuse_count)
+    extra_fuse_ids = {ef["person_id"] for ef in extra_fuse}
 
     # Track per-person training state: person_id -> {fund_completed, adv_completed}
     person_training_state = {}
@@ -741,34 +781,43 @@ def generate_all_cycles(rng, max_cycles=30):
     # Training completion: people typically complete within 2-6 weeks after reminder
     #   -> per-week completion probability starts low and increases over time
     # New projects/PMs arrive periodically (every few weeks)
-    GATE_ADVANCE_PROB = 1.0 / 13.0  # ~7.7% chance per project per week
+    GATE_ADVANCE_PROB = p["gate_advance_prob"]
+    training_speed = p["training_speed"]
+    skip_fund_rate = p["skip_fundamentals_rate"]
+
+    # Build lookup for new PM waves: week -> (n_projects, n_pms)
+    wave_lookup = {}
+    for wave_week, wave_proj, wave_pms in p["new_pm_waves"]:
+        wave_lookup[wave_week] = (wave_proj, wave_pms)
+
+    compliance_noise = {
+        "late_discovery": p["compliance_late_discovery_rate"],
+        "data_correction": p["compliance_data_correction_rate"],
+        "stale_rollup": p["compliance_stale_rollup_rate"],
+    }
 
     new_project_offset = 0
 
     for cycle_num in range(1, max_cycles + 1):
         week = cycle_num
 
-        # Training completion probability increases over weeks
-        # Weeks 1-4: people are just getting started, low completion
-        # Weeks 5-8: moderate uptake
-        # Weeks 9-12: strong uptake
-        # Weeks 13-16: most people done
-        # Weeks 17+: stragglers complete, force to 100%
+        # Training completion probability increases over weeks.
+        # training_speed multiplier scales the curve: >1 = faster, <1 = slower.
         if week <= 4:
-            fund_chance = 0.05 + week * 0.02     # 7-13%
-            adv_chance = 0.02 + week * 0.01      # 3-6%
+            fund_chance = (0.05 + week * 0.02) * training_speed
+            adv_chance = (0.02 + week * 0.01) * training_speed
         elif week <= 8:
-            fund_chance = 0.12 + (week - 4) * 0.03  # 15-24%
-            adv_chance = 0.08 + (week - 4) * 0.03   # 11-20%
+            fund_chance = (0.12 + (week - 4) * 0.03) * training_speed
+            adv_chance = (0.08 + (week - 4) * 0.03) * training_speed
         elif week <= 12:
-            fund_chance = 0.25 + (week - 8) * 0.05  # 30-45%
-            adv_chance = 0.20 + (week - 8) * 0.05   # 25-40%
+            fund_chance = (0.25 + (week - 8) * 0.05) * training_speed
+            adv_chance = (0.20 + (week - 8) * 0.05) * training_speed
         elif week <= 16:
-            fund_chance = 0.50 + (week - 12) * 0.10  # 60-90%
-            adv_chance = 0.45 + (week - 12) * 0.10   # 55-85%
+            fund_chance = (0.50 + (week - 12) * 0.10) * training_speed
+            adv_chance = (0.45 + (week - 12) * 0.10) * training_speed
         elif week <= 20:
-            fund_chance = 0.90 + (week - 16) * 0.025
-            adv_chance = 0.85 + (week - 16) * 0.03
+            fund_chance = (0.90 + (week - 16) * 0.025) * training_speed
+            adv_chance = (0.85 + (week - 16) * 0.03) * training_speed
         else:
             fund_chance = 1.0
             adv_chance = 1.0
@@ -776,19 +825,8 @@ def generate_all_cycles(rng, max_cycles=30):
         fund_chance = min(fund_chance, 1.0)
         adv_chance = min(adv_chance, 1.0)
 
-        # New projects arrive every ~3-4 weeks, new PMs with them
-        n_new_projects = 0
-        n_new_pms = 0
-        if week in (3, 4):
-            n_new_projects, n_new_pms = 8, 4
-        elif week in (7, 8):
-            n_new_projects, n_new_pms = 6, 3
-        elif week in (11, 12):
-            n_new_projects, n_new_pms = 5, 3
-        elif week in (15, 16):
-            n_new_projects, n_new_pms = 4, 2
-        elif week == 19:
-            n_new_projects, n_new_pms = 3, 2
+        # New projects/PMs arrive based on configured waves
+        n_new_projects, n_new_pms = wave_lookup.get(week, (0, 0))
 
         label = f"week {week}"
         print(f"Generating Cycle {cycle_num} ({label})...")
@@ -825,7 +863,7 @@ def generate_all_cycles(rng, max_cycles=30):
                     # Normal path: fundamentals done, now try advanced
                     if rng.random() < adv_chance:
                         state["adv_completed"] = True
-                elif rng.random() < adv_chance * 0.08:
+                elif rng.random() < adv_chance * skip_fund_rate:
                     # Skip path: complete advanced without fundamentals (~8% of cases)
                     state["adv_completed"] = True
 
@@ -834,8 +872,9 @@ def generate_all_cycles(rng, max_cycles=30):
             # Generate base projects
             eppm_rows = generate_eppm_data(
                 active_eppm_people, portfolio_pool, rng,
-                num_projects=250,
+                num_projects=p["num_projects"],
                 compliance_state=compliance_state,
+                compliance_noise=compliance_noise,
             )
             all_project_ids = [r["Project number"] for r in eppm_rows]
             # Record initial stages for each project
@@ -847,7 +886,7 @@ def generate_all_cycles(rng, max_cycles=30):
             # Cancel ~1-2% of active projects per cycle (ghost projects)
             still_active = [pid for pid in all_project_ids
                             if pid not in completed_project_ids and pid not in cancelled_project_ids]
-            n_cancel = max(0, int(len(still_active) * rng.uniform(0.005, 0.015)))
+            n_cancel = max(0, int(len(still_active) * rng.uniform(p["cancel_rate_min"], p["cancel_rate_max"])))
             if n_cancel > 0:
                 newly_cancelled = rng.sample(still_active, n_cancel)
                 cancelled_project_ids.update(newly_cancelled)
@@ -876,6 +915,7 @@ def generate_all_cycles(rng, max_cycles=30):
                 stage_overrides=stage_overrides,
                 cancelled_project_ids=cancelled_project_ids,
                 compliance_state=compliance_state,
+                compliance_noise=compliance_noise,
             )
 
             # Add new projects (start mostly at G0/G1)
@@ -886,6 +926,7 @@ def generate_all_cycles(rng, max_cycles=30):
                     num_projects=n_new_projects,
                     new_project_start=new_project_offset,
                     compliance_state=compliance_state,
+                    compliance_noise=compliance_noise,
                 )
                 eppm_rows.extend(new_rows)
                 for row in new_rows:
@@ -955,15 +996,70 @@ def _cycle_label(cycle_num):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate synthetic test data")
-    parser.add_argument("--seed", type=int, default=SEED, help="Random seed")
+    parser = argparse.ArgumentParser(
+        description="Generate synthetic test data for the Training Reminder System",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    d = DEFAULT_PARAMS  # shorthand for defaults
+
+    # Core
+    parser.add_argument("--seed", type=int, default=SEED, help="Random seed for reproducibility")
     parser.add_argument("--max-cycles", type=int, default=30, help="Max weekly cycles to generate")
+
+    # Population
+    parser.add_argument("--num-people", type=int, default=d["num_people"], help="Total synthetic people")
+    parser.add_argument("--num-projects", type=int, default=d["num_projects"], help="Initial number of projects")
+    parser.add_argument("--portfolio-pool-size", type=int, default=d["portfolio_pool_size"], help="IT Portfolio Manager pool size")
+    parser.add_argument("--initial-eppm-pool", type=int, default=d["initial_eppm_pool"], help="People in initial ePPM pool")
+    parser.add_argument("--extra-fuse-people", type=int, default=d["extra_fuse_people"], help="Fuse-only background learners")
+
+    # Matching
+    parser.add_argument("--overlap-rate", type=float, default=d["overlap_rate"], help="Fraction of ePPM people also in Fuse")
+    parser.add_argument("--alias-rate", type=float, default=d["alias_rate"], help="Fraction of people with email aliases")
+    parser.add_argument("--role-change-rate", type=float, default=d["role_change_rate"], help="Fraction of overlap people who change roles")
+    parser.add_argument("--maiden-name-count", type=int, default=d["maiden_name_count"], help="Number of maiden name alias cases")
+    parser.add_argument("--email-alias-count", type=int, default=d["email_alias_count"], help="Number of email domain alias cases")
+
+    # Evolution
+    parser.add_argument("--gate-advance-prob", type=float, default=d["gate_advance_prob"], help="Per-project per-week gate advance probability")
+    parser.add_argument("--cancel-rate-min", type=float, default=d["cancel_rate_min"], help="Min project cancellation rate per cycle")
+    parser.add_argument("--cancel-rate-max", type=float, default=d["cancel_rate_max"], help="Max project cancellation rate per cycle")
+    parser.add_argument("--training-speed", type=float, default=d["training_speed"], help="Training completion speed multiplier (>1 faster, <1 slower)")
+    parser.add_argument("--skip-fundamentals-rate", type=float, default=d["skip_fundamentals_rate"], help="Rate of people who complete Advanced without Fundamentals")
+
+    # Compliance noise
+    parser.add_argument("--compliance-late-discovery", type=float, default=d["compliance_late_discovery_rate"], help="Rate of late-discovery compliance regressions")
+    parser.add_argument("--compliance-data-correction", type=float, default=d["compliance_data_correction_rate"], help="Rate of data-correction downgrades")
+    parser.add_argument("--compliance-stale-rollup", type=float, default=d["compliance_stale_rollup_rate"], help="Rate of stale overall compliance rollups")
+
     args = parser.parse_args()
+
+    # Build params dict from CLI args
+    params = {
+        "num_people": args.num_people,
+        "num_projects": args.num_projects,
+        "portfolio_pool_size": args.portfolio_pool_size,
+        "initial_eppm_pool": args.initial_eppm_pool,
+        "extra_fuse_people": args.extra_fuse_people,
+        "overlap_rate": args.overlap_rate,
+        "alias_rate": args.alias_rate,
+        "role_change_rate": args.role_change_rate,
+        "maiden_name_count": args.maiden_name_count,
+        "email_alias_count": args.email_alias_count,
+        "gate_advance_prob": args.gate_advance_prob,
+        "cancel_rate_min": args.cancel_rate_min,
+        "cancel_rate_max": args.cancel_rate_max,
+        "training_speed": args.training_speed,
+        "skip_fundamentals_rate": args.skip_fundamentals_rate,
+        "compliance_late_discovery_rate": args.compliance_late_discovery,
+        "compliance_data_correction_rate": args.compliance_data_correction,
+        "compliance_stale_rollup_rate": args.compliance_stale_rollup,
+    }
 
     rng = random.Random(args.seed)
 
     cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_change_pool, cancelled_project_ids = generate_all_cycles(
-        rng, max_cycles=args.max_cycles
+        rng, max_cycles=args.max_cycles, params=params
     )
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1042,7 +1138,8 @@ def main():
 
     # 1. Email alias cases (existing alias people — different domain in Fuse vs ePPM)
     alias_people_in_overlap = [p for p in people if p["email_aliases"] and p["person_id"] in overlap_ids]
-    for p in alias_people_in_overlap[:5]:
+    email_alias_limit = params.get("email_alias_count", 5)
+    for p in alias_people_in_overlap[:email_alias_limit]:
         identity_alias_rows.append({
             "canonical_email": p["email_primary"],
             "canonical_name": p["full_name"],
@@ -1053,7 +1150,8 @@ def main():
 
     # 2. Maiden name cases — pick some women from overlap, give them a different last name in Fuse
     women_in_overlap = [p for p in people if p["person_id"] in overlap_ids and p["gender"] == "Female"]
-    maiden_candidates = rng.sample(women_in_overlap, min(4, len(women_in_overlap)))
+    maiden_count = params.get("maiden_name_count", 4)
+    maiden_candidates = rng.sample(women_in_overlap, min(maiden_count, len(women_in_overlap)))
     for i, p in enumerate(maiden_candidates):
         maiden_last = MAIDEN_NAMES[i % len(MAIDEN_NAMES)]
         maiden_full = f"{p['first_name']} {maiden_last}"
@@ -1142,7 +1240,7 @@ def main():
     print(f"Ghost/cancelled projects: {len(cancelled_project_ids)}")
     csv_cycles = [c for c, d in role_change_csvs.items() if d]
     print(f"Cycles with role_changes.xlsx: {len(csv_cycles)} (cycles {csv_cycles[:5]}{'...' if len(csv_cycles) > 5 else ''})")
-    print(f"Identity aliases: {len(identity_alias_rows)} ({len(maiden_candidates)} maiden names, {len(alias_people_in_overlap[:5])} email aliases)")
+    print(f"Identity aliases: {len(identity_alias_rows)} ({len(maiden_candidates)} maiden names, {min(email_alias_limit, len(alias_people_in_overlap))} email aliases)")
     contractors = sum(1 for p in people if p["employment_type"] == "Contractor")
     print(f"Contractors: {contractors}")
     print(f"Standard: {sum(1 for p in people if p['employment_type'] == 'Standard')}")

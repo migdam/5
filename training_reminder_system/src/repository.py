@@ -1,3 +1,34 @@
+##############################################################################
+# repository.py — SQLite Database Layer
+#
+# All persistent data is stored in a single SQLite database. This module
+# handles schema creation, data insertion, and querying. The database is
+# the system's "memory" — it remembers what happened in previous cycles
+# so the system can make progressive decisions (next reminder stage,
+# escalation timing, congratulations, etc.).
+#
+# TABLES:
+#   cycles — One row per processing cycle (timestamp, status, notes)
+#   project_managers — One row per unique person (name, email, normalized)
+#   assignment_snapshots — PM-to-project assignments per cycle
+#   training_snapshots — Training status per PM per cycle, WITH audit columns:
+#     match_method, missing_trainings, nice_to_have, compliance, eligibility
+#   communication_history — Every reminder prepared, with stage and full content
+#     Stage values: 1-N=training, 0=missing ITPM, -1=escalation, -2=role change, 99=congrats
+#   processed_files — Archive records for traceability
+#   data_quality_issues — Problems found during processing (unmatched PMs, etc.)
+#
+# SCHEMA MIGRATION:
+#   _upgrade_schema() uses ALTER TABLE ADD COLUMN to safely add new columns
+#   to existing databases. This means the system can be upgraded without
+#   losing historical data — new columns are NULL for old cycles.
+#
+# CYCLE REVERT:
+#   revert_cycle() deletes ALL data for a cycle_id from every table.
+#   Called when an invalid input file is detected — ensures no partial
+#   or incorrect data remains in the database.
+##############################################################################
+
 import sqlite3
 import json
 import logging

@@ -1,3 +1,32 @@
+##############################################################################
+# reporting.py — Generate All Output Files
+#
+# This module creates the actual files that the user copies into Outlook.
+# Each processing cycle produces a timestamped output folder containing:
+#
+# OUTPUT STRUCTURE:
+#   2026-04-01_1530_cycle5/
+#   ├── summary_report.md       — Cycle metrics (counts, matches, etc.)
+#   ├── reminders.csv           — All training reminders in CSV format
+#   ├── comms_plan.md           — Weekly send schedule with instructions
+#   ├── per_recipient/          — One .txt file per PM (ready to copy-paste)
+#   ├── stage_1/ stage_2/ ...   — Grouped by reminder stage
+#   ├── missing_itpm/           — IT PM assignment reminders + CSV
+#   ├── escalations_to_owner/   — Owner escalations + CSV
+#   ├── role_changed_itpm/      — Role change alerts + CSV
+#   ├── nice_to_have/           — Optional Fundamentals suggestions
+#   ├── congratulations/        — Certification congratulations
+#   ├── group_emails/           — Consolidated group emails + recipient lists
+#   ├── send_tuesday/           — Day-specific folder (training reminders)
+#   ├── send_wednesday/         — Day-specific folder (ITPM + role change)
+#   ├── send_thursday/          — Day-specific folder (escalations)
+#   └── send_friday/            — Day-specific folder (group + nice-to-have)
+#
+# The send_day/ folders contain COPIES of the relevant files organized
+# by the weekly communication schedule. The user just opens send_tuesday/
+# on Tuesday and sends everything in it.
+##############################################################################
+
 import csv
 import os
 import logging

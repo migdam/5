@@ -1,16 +1,42 @@
 #!/usr/bin/env python3
-"""Run a multi-cycle simulation to demonstrate the Training Reminder System.
-
-This script:
-1. Resets the database for a fresh start
-2. Discovers all available cycles in data/simulation/
-3. For each cycle:
-   - Copies simulation files to data/input/
-   - Runs main.py pipeline
-   - Prints summary
-4. Runs until all PMs are certified (0 reminders generated)
-5. Prints cross-cycle comparison showing reminder progression
-"""
+##############################################################################
+# run_simulation.py — Multi-Cycle Simulation Runner
+#
+# This script runs the training reminder system across multiple weekly
+# cycles using pre-generated synthetic data from generate_test_data.py.
+# It demonstrates the full lifecycle:
+#   - Training reminders progressing from Stage 1 → 2 → 3 → follow-ups
+#   - New PMs joining and starting at Stage 1
+#   - PMs completing training and receiving congratulations
+#   - Missing IT PM reminders escalating to Project Owners
+#   - Compliance improvements generating thank-you notes
+#   - Ghost projects being filtered out
+#
+# HOW IT WORKS:
+#   1. Resets the database (fresh start for each simulation)
+#   2. Discovers all available cycles in data/simulation/
+#   3. For each cycle:
+#      - Copies that cycle's files (ePPM, Fuse, role_changes, etc.)
+#        from data/simulation/cycle_N/ to data/input/
+#      - Runs the main.py pipeline via run_cycle()
+#      - Prints summary counts
+#   4. Stops when 0 training reminders are generated (all certified)
+#   5. Prints a cross-cycle progression table and analysis
+#
+# PROGRESSION TABLE COLUMNS:
+#   Cycle — cycle number (= week number)
+#   Ghost — projects filtered out (completed/cancelled/excluded)
+#   PMs — unique PMs found in ePPM
+#   Match — PMs matched to Fuse training records
+#   Done — PMs with all training complete
+#   Elig — PMs eligible for training reminders
+#   TrRem — training reminders generated
+#   S1/S2/S3+ — reminder stage breakdown
+#   ITPM — missing IT PM reminders to PMs
+#   Escal — escalations to Project Owners
+#   RChg — role-changed IT PM alerts
+##############################################################################
+"""Run a multi-cycle simulation to demonstrate the Training Reminder System."""
 import os
 import sys
 import shutil

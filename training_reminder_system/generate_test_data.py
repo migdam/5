@@ -1,18 +1,43 @@
 #!/usr/bin/env python3
-"""Generate synthetic test data for the Training Reminder System.
-
-Creates multiple cycles of ePPM and Fuse Excel files with controlled evolution
-until ALL PMs are fully certified. New projects with new PMs are introduced
-in later cycles, requiring them to also get certified.
-
-Cycle progression:
-- Cycle 1: Baseline (~250 projects, low certification rates)
-- Cycles 2-N: Training completion increases, new projects/PMs arrive
-- Final cycle: 100% certification, 0 reminders needed
-
-Data is output to data/simulation/cycle_N/ folders
-and cycle_1 is also copied to data/input/ for easy first run.
-"""
+##############################################################################
+# generate_test_data.py — Synthetic Data Generator for Simulation
+#
+# Creates realistic test data to validate the training reminder system
+# across multiple weekly cycles. Generates:
+#   - ePPM Excel files (project assignments with gate compliance data)
+#   - Fuse Excel files (training records with completion statuses)
+#   - role_changes.xlsx (people who changed roles, appears gradually)
+#   - excluded_projects.xlsx (ghost/cancelled projects, grows over time)
+#   - identity_aliases.xlsx (maiden names, email domain mismatches)
+#
+# DATA GENERATION STRATEGY:
+#   1. Build a shared "people master" (~350 synthetic people) with names,
+#      emails, employment types, regions, etc.
+#   2. Generate ePPM data from this master — projects with assigned PMs,
+#      compliance fields, gate stages. ~35% of ePPM people also appear
+#      in Fuse (the overlap that enables matching).
+#   3. Generate Fuse data — training records per person. Training
+#      completion rates increase each cycle (simulating people completing
+#      courses over time).
+#   4. Run cycles until all matchable PMs are certified.
+#
+# TIMING MODEL:
+#   - Each cycle = 1 week (matching real operational cadence)
+#   - Gate advancement: ~7.7% chance per project per week (avg 3 months/gate)
+#   - Gate sequence: G0 → G1 → G2 → G3 → G4 → G5 → G6 → Completed
+#   - Training completion: gradual over weeks, reaching 100% by week ~17
+#   - New projects/PMs arrive every 3-4 weeks
+#   - ~1-2% of projects get cancelled each cycle (ghost projects)
+#
+# EDGE CASES SIMULATED:
+#   - Maiden names (women's last names differ between ePPM and Fuse)
+#   - Email domain aliases (corp.example vs brand.example)
+#   - Same person in PM + IT PM roles on the same project
+#   - Small shared IT Portfolio Manager pool reused across projects
+#   - People completing Advanced without Fundamentals (~8%)
+#   - Contractors with external email domains
+##############################################################################
+"""Generate synthetic test data for the Training Reminder System."""
 import argparse
 import os
 import random

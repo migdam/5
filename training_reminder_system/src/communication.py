@@ -111,6 +111,7 @@ def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_
         "just_completed_fundamentals": just_completed_fundamentals,
         "compliance_improvements": compliance_improvements,
         "has_compliance_improvements": len(compliance_improvements) > 0,
+        "links": config.get("action_links", {}),
     }
 
     # Render with Jinja2
@@ -280,8 +281,9 @@ def generate_congratulations(newly_certified_pms, db, cycle_id, config):
         lines = template_content.strip().split("\n", 1)
         subject_tpl = lines[0].replace("Subject: ", "").strip()
         body_tpl = lines[1].strip() if len(lines) > 1 else ""
-        subject = Template(subject_tpl).render(name=name)
-        body = Template(body_tpl).render(name=name)
+        links = config.get("action_links", {})
+        subject = Template(subject_tpl).render(name=name, links=links)
+        body = Template(body_tpl).render(name=name, links=links)
 
         db.insert_communication(cycle_id, pm_id, 99, subject, body, status="prepared")
 
@@ -448,8 +450,9 @@ def generate_missing_itpm_reminders(missing_itpm_list, db, cycle_id, config):
                 lines = template_content.strip().split("\n", 1)
                 subject_tpl = lines[0].replace("Subject: ", "").strip()
                 body_tpl = lines[1].strip() if len(lines) > 1 else ""
-                subject = Template(subject_tpl).render(pm_name=pm_name, projects=projects)
-                body = Template(body_tpl).render(pm_name=pm_name, projects=projects)
+                links = config.get("action_links", {})
+                subject = Template(subject_tpl).render(pm_name=pm_name, projects=projects, links=links)
+                body = Template(body_tpl).render(pm_name=pm_name, projects=projects, links=links)
             else:
                 subject = "Action Requested: Please Assign an IT Project Manager"
                 body = f"Dear {pm_name},\n\nPlease assign an IT PM for your projects.\n"
@@ -512,13 +515,14 @@ def generate_missing_itpm_reminders(missing_itpm_list, db, cycle_id, config):
                     lines = template_content.strip().split("\n", 1)
                     subject_tpl = lines[0].replace("Subject: ", "").strip()
                     body_tpl = lines[1].strip() if len(lines) > 1 else ""
+                    links = config.get("action_links", {})
                     subject = Template(subject_tpl).render(
                         owner_name=owner_name, pm_name=pm_name,
-                        pm_email=pm_email, projects=owner_projs,
+                        pm_email=pm_email, projects=owner_projs, links=links,
                     )
                     body = Template(body_tpl).render(
                         owner_name=owner_name, pm_name=pm_name,
-                        pm_email=pm_email, projects=owner_projs,
+                        pm_email=pm_email, projects=owner_projs, links=links,
                     )
                 else:
                     subject = f"Escalation: IT Project Manager Still Missing for Your Project(s)"
@@ -571,8 +575,9 @@ def generate_missing_itpm_reminders(missing_itpm_list, db, cycle_id, config):
                 lines = template_content.strip().split("\n", 1)
                 subject_tpl = lines[0].replace("Subject: ", "").strip()
                 body_tpl = lines[1].strip() if len(lines) > 1 else ""
-                subject = Template(subject_tpl).render(pm_name=pm_name, projects=projects)
-                body = Template(body_tpl).render(pm_name=pm_name, projects=projects)
+                links = config.get("action_links", {})
+                subject = Template(subject_tpl).render(pm_name=pm_name, projects=projects, links=links)
+                body = Template(body_tpl).render(pm_name=pm_name, projects=projects, links=links)
             else:
                 subject = "Action Requested: Please Assign an IT Project Manager"
                 body = f"Dear {pm_name},\n\nPlease assign an IT PM for your projects.\n"
@@ -632,8 +637,9 @@ def generate_role_changed_reminders(role_changed_list, db, cycle_id, config):
             lines = template_content.strip().split("\n", 1)
             subject_tpl = lines[0].replace("Subject: ", "").strip()
             body_tpl = lines[1].strip() if len(lines) > 1 else ""
-            subject = Template(subject_tpl).render(pm_name=pm_name, projects=projects)
-            body = Template(body_tpl).render(pm_name=pm_name, projects=projects)
+            links = config.get("action_links", {})
+            subject = Template(subject_tpl).render(pm_name=pm_name, projects=projects, links=links)
+            body = Template(body_tpl).render(pm_name=pm_name, projects=projects, links=links)
         else:
             subject = "Action Needed: IT PM Allocation Update Required in ePPM"
             body = f"Dear {pm_name},\n\nSome IT PMs on your projects have changed roles.\n"

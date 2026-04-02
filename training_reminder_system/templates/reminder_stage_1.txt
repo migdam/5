@@ -42,6 +42,11 @@ These courses are designed to help you:
 
 There is no rush, but we encourage you to explore these courses at your earliest convenience. Completing them will help you feel even more prepared and supported in your role.
 
+Useful links:
+  - Start your training: {{links.learning_platform}} ({{links.learning_platform_name}})
+  - Learn more about the PM Standard: {{links.pm_standard_page}} ({{links.pm_standard_name}})
+  - Join the conversation: {{links.viva_engage_standard}} ({{links.viva_engage_name}})
+
 If you have any questions about the training or need help accessing the platform, please do not hesitate to reach out.
 
 Warm regards,

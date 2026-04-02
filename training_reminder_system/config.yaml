@@ -129,6 +129,18 @@ matching:
 communication:
   max_reminder_stage: 0  # 0 means no limit; uses default template for stage > 3
 
+# Action links — URLs included in reminder messages so PMs can act directly
+# Update these to match your organization's actual URLs
+action_links:
+  learning_platform: "https://learning.example.com"
+  learning_platform_name: "Fuse Learning Platform"
+  eppm_tool: "https://eppm.example.com"
+  eppm_tool_name: "ePPM"
+  viva_engage_standard: "https://engage.cloud.microsoft/main/org/example.com/threads/pm-standard"
+  viva_engage_name: "PM Standard Community on Viva Engage"
+  pm_standard_page: "https://intranet.example.com/pm-standard"
+  pm_standard_name: "Project Management Standard"
+
 # Weekly communication schedule
 # Defines which day each message type should be sent after the Monday cycle run.
 # This organizes the output folder into day-specific subfolders.

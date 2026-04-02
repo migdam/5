@@ -17,6 +17,9 @@ Keeping ePPM allocations current is important because:
 
 Could you please review and update the IT Project Manager field in ePPM for the project(s) listed above?
 
+  - Open ePPM to update the assignment: {{links.eppm_tool}} ({{links.eppm_tool_name}})
+  - PM roles and standard: {{links.viva_engage_standard}} ({{links.viva_engage_name}})
+
 If you need help identifying who should be assigned, please reach out to your IT Portfolio Manager or the Project Management Office.
 
 Thank you for your attention to this matter.

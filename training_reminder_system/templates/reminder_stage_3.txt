@@ -54,5 +54,10 @@ We encourage you to set aside time in the coming days to complete this training.
 
 Your contribution to our projects matters, and this training will help you make an even greater impact.
 
+Take action now:
+  - Complete your training: {{links.learning_platform}} ({{links.learning_platform_name}})
+  - Review the PM Standard: {{links.pm_standard_page}} ({{links.pm_standard_name}})
+  - See how colleagues are applying the standard: {{links.viva_engage_standard}} ({{links.viva_engage_name}})
+
 Kind regards,
 Project Management Office

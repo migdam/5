@@ -34,5 +34,10 @@ The training provides practical frameworks for navigating gate reviews, managing
 {% endif %}
 We are here to support you. If scheduling or workload is making it difficult to find time, please let us know — we can help.
 
+Take action:
+  - Complete your training: {{links.learning_platform}} ({{links.learning_platform_name}})
+{% if has_compliance_issues %}  - Update your project in ePPM: {{links.eppm_tool}} ({{links.eppm_tool_name}})
+{% endif %}  - Read about how others are adhering to the standard: {{links.viva_engage_standard}} ({{links.viva_engage_name}})
+
 Best regards,
 Project Management Office

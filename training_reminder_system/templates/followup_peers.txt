@@ -42,5 +42,10 @@ We would love to see you join them. Each course takes approximately 2 hours, and
 
 If you have any questions or need help getting started, please do not hesitate to reach out.
 
+Get started:
+  - Access your training: {{links.learning_platform}} ({{links.learning_platform_name}})
+  - See what colleagues are sharing about the PM Standard: {{links.viva_engage_standard}} ({{links.viva_engage_name}})
+  - PM Standard details: {{links.pm_standard_page}} ({{links.pm_standard_name}})
+
 Kind regards,
 Project Management Office

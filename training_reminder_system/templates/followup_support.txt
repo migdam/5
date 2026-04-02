@@ -41,5 +41,10 @@ The courses are designed to be completed in approximately 2 hours each, and they
 
 Your growth matters to us, and we want to remove any barriers that might be in the way. Please reply to this message or reach out to the Project Management Office directly.
 
+Helpful links:
+  - Access your training: {{links.learning_platform}} ({{links.learning_platform_name}})
+{% if has_compliance_issues %}  - Update your project compliance: {{links.eppm_tool}} ({{links.eppm_tool_name}})
+{% endif %}  - Discuss the PM Standard with colleagues: {{links.viva_engage_standard}} ({{links.viva_engage_name}})
+
 With appreciation,
 Project Management Office

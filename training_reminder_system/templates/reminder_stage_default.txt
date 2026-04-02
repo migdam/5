@@ -49,5 +49,10 @@ We genuinely want to help you succeed. If there is anything we can do to support
 
 We look forward to celebrating your completion soon.
 
+Quick links:
+  - Complete your training: {{links.learning_platform}} ({{links.learning_platform_name}})
+  - PM Standard reference: {{links.pm_standard_page}} ({{links.pm_standard_name}})
+  - Join the PM Standard community: {{links.viva_engage_standard}} ({{links.viva_engage_name}})
+
 With appreciation,
 Project Management Office

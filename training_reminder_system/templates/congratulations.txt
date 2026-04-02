@@ -16,6 +16,10 @@ With these certifications, you are now fully equipped with:
 
 Thank you for investing the time and effort to complete this training. Your skills and dedication make a real difference to the projects you lead and the teams you work with.
 
+We encourage you to share your experience and insights with your colleagues:
+  - Share your achievement on Viva Engage: {{links.viva_engage_standard}} ({{links.viva_engage_name}})
+  - Review the PM Standard for reference: {{links.pm_standard_page}} ({{links.pm_standard_name}})
+
 We look forward to seeing the positive impact of your continued growth.
 
 With appreciation and congratulations,

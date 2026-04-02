@@ -353,179 +353,195 @@ def build_portfolio_pool(people, rng, pool_size=25):
     return pool
 
 
+
 # ============================================================
-# ePPM Generator
+# Project Registry — Stable assignments across cycles
 # ============================================================
 
-def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
-                       completed_project_ids=None, new_project_start=0,
-                       stage_overrides=None, cancelled_project_ids=None,
-                       compliance_state=None, compliance_noise=None):
-    """Generate ePPM project assignment data.
+PROJECT_NAME_TEMPLATES = [
+    "Global {} Enablement", "{} Data Hub", "{} Transformation Program",
+    "{} Platform Migration", "Digital {} Initiative", "{} Process Optimization",
+    "{} System Upgrade", "Enterprise {} Integration", "{} Analytics Platform",
+    "{} Compliance Framework", "Next-Gen {} Solution", "{} Workflow Automation",
+    "{} Security Enhancement", "{} Cloud Migration", "{} Customer Experience",
+    "Regional {} Rollout", "{} Supply Chain Digitization", "{} ERP Enhancement",
+    "{} Quality Management", "{} Innovation Lab",
+]
+PROJECT_NAME_NOUNS = [
+    "Payments", "Retail", "Manufacturing", "Finance", "HR", "Logistics",
+    "Marketing", "Sales", "Procurement", "Quality", "Regulatory",
+    "Operations", "IT", "Data", "CRM", "ERP", "SAP", "Cloud",
+    "Mobile", "Web", "AI", "IoT", "Blockchain", "RPA", "DevOps",
+]
 
-    Args:
-        people: People master list.
-        portfolio_pool: IT Portfolio Manager pool.
-        rng: Random number generator.
-        num_projects: Number of projects to generate.
-        completed_project_ids: Set of project IDs that should be marked Completed.
-        new_project_start: Index offset for new projects (to generate unique IDs).
-        stage_overrides: Dict of project_id -> new_stage for evolution.
-        compliance_state: Dict of project_id -> {gate: status} tracking compliance
-            evolution across cycles. Mutated in place.
-        compliance_noise: Dict with noise rates: late_discovery, data_correction,
-            stale_rollup. Defaults to 0.03, 0.04, 0.05.
+
+def _generate_project_name(rng, used_names):
+    """Generate a unique project name."""
+    for _ in range(20):
+        template = rng.choice(PROJECT_NAME_TEMPLATES)
+        noun = rng.choice(PROJECT_NAME_NOUNS)
+        name = template.format(noun)
+        if rng.random() < 0.3:
+            name += f" {rng.choice(sum(REGIONS.values(), []))}"
+        if name not in used_names:
+            used_names.add(name)
+            return name
+    name = f"{template.format(noun)} #{len(used_names)}"
+    used_names.add(name)
+    return name
+
+
+def create_project_registry(people_pool, portfolio_pool, rng, num_projects,
+                            project_id_offset=0):
+    """Create initial project registry with stable role assignments.
+
+    Each project gets a fixed name, PM, IT PM, Owner, Portfolio Manager
+    that persist across cycles. Changes happen via explicit mutations
+    (transfers, leaves, etc.) not random reassignment.
+
+    Returns:
+        dict: project_id -> project record dict with person references
     """
-    if compliance_noise is None:
-        compliance_noise = {}
-    noise_late_discovery = compliance_noise.get("late_discovery", 0.03)
-    noise_data_correction = compliance_noise.get("data_correction", 0.04)
-    noise_stale_rollup = compliance_noise.get("stale_rollup", 0.05)
-    if completed_project_ids is None:
-        completed_project_ids = set()
-    if stage_overrides is None:
-        stage_overrides = {}
-    if cancelled_project_ids is None:
-        cancelled_project_ids = set()
-
-    non_contractor_people = [p for p in people if p["employment_type"] != "Contractor"]
-    rows = []
-    project_names_used = set()
-
-    project_name_templates = [
-        "Global {} Enablement", "{} Data Hub", "{} Transformation Program",
-        "{} Platform Migration", "Digital {} Initiative", "{} Process Optimization",
-        "{} System Upgrade", "Enterprise {} Integration", "{} Analytics Platform",
-        "{} Compliance Framework", "Next-Gen {} Solution", "{} Workflow Automation",
-        "{} Security Enhancement", "{} Cloud Migration", "{} Customer Experience",
-        "Regional {} Rollout", "{} Supply Chain Digitization", "{} ERP Enhancement",
-        "{} Quality Management", "{} Innovation Lab",
-    ]
-    name_nouns = [
-        "Payments", "Retail", "Manufacturing", "Finance", "HR", "Logistics",
-        "Marketing", "Sales", "Procurement", "Quality", "Regulatory",
-        "Operations", "IT", "Data", "CRM", "ERP", "SAP", "Cloud",
-        "Mobile", "Web", "AI", "IoT", "Blockchain", "RPA", "DevOps",
-    ]
+    non_contractor = [p for p in people_pool if p["employment_type"] != "Contractor"]
+    registry = {}
+    used_names = set()
 
     for i in range(num_projects):
-        proj_id = f"PRJ{1000000 + new_project_start + i}"
+        proj_id = f"PRJ{1000000 + project_id_offset + i}"
+        pname = _generate_project_name(rng, used_names)
 
-        # Generate unique project name
-        attempts = 0
-        while True:
-            template = rng.choice(project_name_templates)
-            noun = rng.choice(name_nouns)
-            country = rng.choice(sum(REGIONS.values(), []))
-            pname = template.format(noun)
-            if rng.random() < 0.3:
-                pname += f" {country}"
-            if pname not in project_names_used or attempts > 10:
-                project_names_used.add(pname)
-                break
-            attempts += 1
-
-        # Stage
-        if proj_id in completed_project_ids:
-            stage = "Completed"
-            status = "Completed"
-        elif proj_id in cancelled_project_ids:
-            # Ghost projects: cancelled but status not updated in ePPM
-            # They still show "Not Completed" with their last known stage
-            stage = stage_overrides.get(proj_id, rng.choice(["G0", "G1", "G2", "G3"]))
-            status = "Not Completed"  # Stale — not updated
-        elif proj_id in stage_overrides:
-            stage = stage_overrides[proj_id]
-            status = "Completed" if stage == "Completed" else "Not Completed"
-        else:
-            stage = rng.choices(
-                list(STAGE_WEIGHTS.keys()),
-                weights=list(STAGE_WEIGHTS.values())
-            )[0]
-            status = "Completed" if stage == "Completed" else "Not Completed"
+        stage = rng.choices(
+            list(STAGE_WEIGHTS.keys()),
+            weights=list(STAGE_WEIGHTS.values())
+        )[0]
 
         leading_function = rng.choice(LEADING_FUNCTIONS)
         sub_function = None if rng.random() < 0.666 else rng.choice(LEADING_FUNCTIONS)
         archetype = rng.choices(PROJECT_ARCHETYPES, weights=ARCHETYPE_WEIGHTS)[0]
 
-        # Assign roles
-        # Project Owner (23.6% null)
-        if rng.random() < 0.236:
-            owner, owner_email = None, None
-        else:
-            p = rng.choice(non_contractor_people)
-            owner, owner_email = p["full_name"], p["email_primary"]
+        # Assign roles — stored as person references, stable across cycles
+        owner = rng.choice(non_contractor) if rng.random() >= 0.236 else None
+        pm = rng.choice(non_contractor) if rng.random() >= 0.003 else None
 
-        # Project Manager (0.3% null)
-        if rng.random() < 0.003:
-            pm, pm_email = None, None
-        else:
-            p = rng.choice(non_contractor_people)
-            pm, pm_email = p["full_name"], p["email_primary"]
-
-        # IT Project Manager (7.6% null)
         if rng.random() < 0.076:
-            it_pm, it_pm_email = None, None
+            it_pm = None
+        elif pm and rng.random() < 0.12:
+            it_pm = pm  # Same person as PM
         else:
-            # 12% chance: same as PM
-            if pm and rng.random() < 0.12:
-                it_pm, it_pm_email = pm, pm_email
-            else:
-                p = rng.choice(non_contractor_people)
-                it_pm, it_pm_email = p["full_name"], p["email_primary"]
+            it_pm = rng.choice(non_contractor)
 
-        # Owner == PM (5% of rows where both exist)
         if owner and pm and rng.random() < 0.05:
-            owner, owner_email = pm, pm_email
+            owner = pm
 
-        # IT Portfolio Manager from pool (7.9% null)
         if rng.random() < 0.079:
-            it_port, it_port_email = None, None
+            it_port = None
         else:
-            p = rng.choice(portfolio_pool)
-            it_port, it_port_email = p["full_name"], p["email_primary"]
-            # 3% chance: IT PM == IT Portfolio Manager
+            it_port = rng.choice(portfolio_pool)
             if it_pm and rng.random() < 0.03:
-                it_port, it_port_email = it_pm, it_pm_email
+                it_port = it_pm
 
-        # Compliance fields (sparse — populated for gates the project has passed)
-        # Compliance evolves across cycles: Non-compliant -> Partially -> Full
-        # Once a gate reaches Full compliance, it stays there.
-        g0_comp, g0_act = (None, None)
-        g3_comp, g3_act = (None, None)
-        g5_comp, g5_act = (None, None)
-        g6_comp, g6_act = (None, None)
+        registry[proj_id] = {
+            "project_id": proj_id,
+            "project_name": pname,
+            "stage": stage,
+            "leading_function": leading_function,
+            "sub_function": sub_function,
+            "archetype": archetype,
+            "owner": owner,       # person dict reference (stable)
+            "pm": pm,             # person dict reference (stable)
+            "it_pm": it_pm,       # person dict reference (stable)
+            "it_port": it_port,   # person dict reference (stable)
+        }
 
-        stage_idx = GATE_SEQUENCE.index(stage) if stage in GATE_SEQUENCE else 0
+    return registry
 
-        if compliance_state is not None:
-            proj_comp = compliance_state.setdefault(proj_id, {})
+
+def evolve_registry(registry, rng, completed_ids, cancelled_ids, gate_advance_prob,
+                    cancel_rate_min, cancel_rate_max):
+    """Advance project gates and cancel some projects. Mutates registry in place.
+
+    Returns:
+        (newly_completed_ids, newly_cancelled_ids)
+    """
+    active_ids = [pid for pid, proj in registry.items()
+                  if pid not in completed_ids and pid not in cancelled_ids
+                  and proj["stage"] != "Completed"]
+
+    # Cancel some projects
+    n_cancel = max(0, int(len(active_ids) * rng.uniform(cancel_rate_min, cancel_rate_max)))
+    newly_cancelled = set()
+    if n_cancel > 0:
+        newly_cancelled = set(rng.sample(active_ids, min(n_cancel, len(active_ids))))
+        cancelled_ids.update(newly_cancelled)
+        active_ids = [pid for pid in active_ids if pid not in cancelled_ids]
+
+    # Advance gates
+    newly_completed = set()
+    for pid in active_ids:
+        if rng.random() < gate_advance_prob:
+            proj = registry[pid]
+            current = proj["stage"]
+            if current in GATE_SEQUENCE:
+                idx = GATE_SEQUENCE.index(current)
+                advance = 1 if rng.random() < 0.85 else 2
+                new_idx = min(idx + advance, len(GATE_SEQUENCE) - 1)
+                new_stage = GATE_SEQUENCE[new_idx]
+                proj["stage"] = new_stage
+                if new_stage == "Completed":
+                    completed_ids.add(pid)
+                    newly_completed.add(pid)
+
+    return newly_completed, newly_cancelled
+
+
+def render_eppm_from_registry(registry, compliance_state, rng,
+                              completed_ids=None, cancelled_ids=None,
+                              compliance_noise=None):
+    """Convert the project registry to ePPM Excel rows.
+
+    Reads the stable assignments from the registry and renders them
+    into the column format expected by the training reminder system.
+    """
+    if completed_ids is None:
+        completed_ids = set()
+    if cancelled_ids is None:
+        cancelled_ids = set()
+    if compliance_noise is None:
+        compliance_noise = {}
+    noise_late_discovery = compliance_noise.get("late_discovery", 0.03)
+    noise_data_correction = compliance_noise.get("data_correction", 0.04)
+    noise_stale_rollup = compliance_noise.get("stale_rollup", 0.05)
+
+    rows = []
+    for proj_id, proj in registry.items():
+        stage = proj["stage"]
+        if proj_id in completed_ids:
+            stage = "Completed"
+        # Cancelled projects keep stale status in ePPM
+        if proj_id in cancelled_ids and stage != "Completed":
+            status = "Not Completed"
         else:
-            proj_comp = {}
+            status = "Completed" if stage == "Completed" else "Not Completed"
+
+        # Stable role assignments from registry
+        owner = proj.get("owner")
+        pm = proj.get("pm")
+        it_pm = proj.get("it_pm")
+        it_port = proj.get("it_port")
+
+        # --- Compliance (evolves across cycles, respects gate progression) ---
+        stage_idx = GATE_SEQUENCE.index(stage) if stage in GATE_SEQUENCE else 0
+        proj_comp = compliance_state.setdefault(proj_id, {})
 
         def _evolve_gate(gate, min_stage_idx, appear_prob, action_map):
-            """Get compliance for a gate, evolving from prior state.
-
-            Noise scenarios (matching real ePPM data quality issues):
-            - 3% chance: late discovery — audit reveals non-compliance at an
-              earlier gate that was previously reported as fully compliant
-            - 4% chance of temporary regression — a review downgrades
-              Partially compliant back to Non-compliant (data correction)
-            - Compliance data may disappear for a cycle (appear_prob) and
-              come back — simulating inconsistent reporting
-            """
             if stage_idx < min_stage_idx:
                 return None, None
             if rng.random() < appear_prob:
-                return None, None  # Not reported this cycle
-
+                return None, None
             prev = proj_comp.get(gate)
             if prev is None:
-                # First time: assign initial compliance (weighted toward non-compliant)
                 val = rng.choices(COMPLIANCE_VALUES, weights=[0.25, 0.40, 0.35])[0]
             elif prev == "Full compliance":
-                # Late-discovery: audit finds issues at a gate that was
-                # previously marked fully compliant
                 if rng.random() < noise_late_discovery:
                     val = rng.choice(["Partially compliant", "Non-compliant"])
                 else:
@@ -535,12 +551,10 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
                 if roll < 0.30:
                     val = "Full compliance"
                 elif roll < 0.30 + noise_data_correction:
-                    # Data correction — downgraded after closer review
                     val = "Non-compliant"
                 else:
                     val = "Partially compliant"
-            else:  # Non-compliant
-                # 20% chance to improve to Partially, 5% chance to jump to Full
+            else:
                 roll = rng.random()
                 if roll < 0.05:
                     val = "Full compliance"
@@ -548,34 +562,21 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
                     val = "Partially compliant"
                 else:
                     val = "Non-compliant"
-
             proj_comp[gate] = val
             act = action_map[val]
             act = rng.choice(act) if isinstance(act, list) else act
             return val, act
 
-        # G0 compliance if past G0 (43% chance of being reported)
         g0_comp, g0_act = _evolve_gate("G0", 1, 0.57, G0_ACTIONS)
-        # G3 compliance if past G3 (27% chance of being reported)
         g3_comp, g3_act = _evolve_gate("G3", 4, 0.73, G3_ACTIONS)
-        # G5 compliance if past G5 (4% chance of being reported)
         g5_comp, g5_act = _evolve_gate("G5", 6, 0.96, G5_ACTIONS)
-        # G6 compliance if past G6 (2% chance of being reported)
         g6_comp, g6_act = _evolve_gate("G6", 7, 0.98, G6_ACTIONS)
 
-        # Overall project compliance also evolves (with noise)
-        # Noise: 5% chance overall compliance contradicts individual gates
-        # (e.g., all gates Full but overall shows Partially — stale rollup)
         prev_proj = proj_comp.get("project")
         if rng.random() > 0.476:
             if prev_proj is None:
-                proj_compliance = rng.choices(
-                    COMPLIANCE_VALUES, weights=[0.5, 0.35, 0.15]
-                )[0]
+                proj_compliance = rng.choices(COMPLIANCE_VALUES, weights=[0.5, 0.35, 0.15])[0]
             elif prev_proj == "Full compliance":
-                # 5% stale rollup: overall hasn't been refreshed after a
-                # gate-level regression, so it still says Full even though
-                # a gate was downgraded, or vice versa
                 proj_compliance = "Partially compliant" if rng.random() < noise_stale_rollup else "Full compliance"
             elif prev_proj == "Partially compliant":
                 roll = rng.random()
@@ -586,6 +587,12 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
                 else:
                     proj_compliance = "Partially compliant"
             else:
+                roll = rng.random()
+                if roll < 0.05:
+                    proj_compliance = "Full compliance"
+                elif roll < 0.20:
+                    proj_compliance = "Partially compliant"
+                else:
                     proj_compliance = "Non-compliant"
             proj_comp["project"] = proj_compliance
         else:
@@ -593,20 +600,20 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
 
         rows.append({
             "Project number": proj_id,
-            "Project Name": pname,
-            "Leading Function": leading_function,
-            "Sub Function": sub_function,
+            "Project Name": proj["project_name"],
+            "Leading Function": proj["leading_function"],
+            "Sub Function": proj["sub_function"],
             "Active Stage": stage,
             "Project Status": status,
-            "Project Archetype": archetype,
-            "Project Owner": owner,
-            "Project Owner Email": owner_email,
-            "Project Manager": pm,
-            "Project Manager Email": pm_email,
-            "IT Project Manager": it_pm,
-            "IT Project Manager Email": it_pm_email,
-            "IT Portfolio Manager": it_port,
-            "IT Portfolio Manager Email": it_port_email,
+            "Project Archetype": proj["archetype"],
+            "Project Owner": owner["full_name"] if owner else None,
+            "Project Owner Email": owner["email_primary"] if owner else None,
+            "Project Manager": pm["full_name"] if pm else None,
+            "Project Manager Email": pm["email_primary"] if pm else None,
+            "IT Project Manager": it_pm["full_name"] if it_pm else None,
+            "IT Project Manager Email": it_pm["email_primary"] if it_pm else None,
+            "IT Portfolio Manager": it_port["full_name"] if it_port else None,
+            "IT Portfolio Manager Email": it_port["email_primary"] if it_port else None,
             "G0 Compliance": g0_comp,
             "G0 Action": g0_act,
             "G3 Compliance": g3_comp,
@@ -619,7 +626,6 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
         })
 
     return rows
-
 
 # ============================================================
 # Fuse Generator
@@ -857,14 +863,22 @@ DEFAULT_PARAMS = {
 }
 
 
+
+# ============================================================
+# Multi-Cycle Generation (Registry-Based)
+# ============================================================
+
 def generate_all_cycles(rng, max_cycles=30, params=None):
     """Generate cycles until ALL PMs are fully certified.
+
+    Uses a stable project registry where each project keeps its assigned
+    PM, IT PM, Owner, and name across cycles. Changes happen via explicit
+    mutations (PM leaves, transfers, project renames) not random shuffling.
 
     Args:
         rng: Random number generator.
         max_cycles: Maximum number of weekly cycles to generate.
         params: Dict of generation parameters (see DEFAULT_PARAMS).
-            Any key not provided falls back to the default value.
     """
     p = dict(DEFAULT_PARAMS)
     if params:
@@ -875,12 +889,12 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
     alias_ids = assign_aliases(people, rng, rate=p["alias_rate"])
     portfolio_pool = build_portfolio_pool(people, rng, pool_size=p["portfolio_pool_size"])
 
-    non_contractor = [p_person for p_person in people if p_person["employment_type"] != "Contractor"]
-    people_by_id = {p_person["person_id"]: p_person for p_person in people}
+    non_contractor = [pp for pp in people if pp["employment_type"] != "Contractor"]
+    people_by_id = {pp["person_id"]: pp for pp in people}
 
-    # Ensure name-collision people are in the initial pool (not just the reserve)
-    collision_people = [p_person for p_person in people if p_person.get("name_collision_with")]
-    regular_non_contractor = [p_person for p_person in non_contractor if not p_person.get("name_collision_with")]
+    # Ensure name-collision people are in the initial pool
+    collision_people = [pp for pp in people if pp.get("name_collision_with")]
+    regular_non_contractor = [pp for pp in non_contractor if not pp.get("name_collision_with")]
 
     initial_pool_size = min(p["initial_eppm_pool"], len(regular_non_contractor))
     initial_eppm_pool = regular_non_contractor[:initial_pool_size] + collision_people
@@ -893,7 +907,6 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
 
     role_change_pool_count = max(4, int(len(overlap_people) * p["role_change_rate"]))
     role_change_pool = rng.sample(overlap_people, role_change_pool_count)
-    role_change_pool_ids = {rc["person_id"] for rc in role_change_pool}
 
     fuse_only_candidates = [fp for fp in people if fp["person_id"] not in overlap_ids
                             and fp not in initial_eppm_pool]
@@ -901,39 +914,53 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
     extra_fuse = rng.sample(fuse_only_candidates, extra_fuse_count)
     extra_fuse_ids = {ef["person_id"] for ef in extra_fuse}
 
-    # Track per-person training state: person_id -> {fund_completed, adv_completed}
+    # Stable state across cycles
     person_training_state = {}
-
-    # Track all project IDs and their completion state
-    all_project_ids = []
     completed_project_ids = set()
-    cancelled_project_ids = set()  # Ghost projects — cancelled but not updated in ePPM
-    stage_overrides = {}
-    compliance_state = {}  # project_id -> {gate: status} — tracks compliance evolution
-    removed_pms = []       # (cycle_num, person) — PMs who left, may be re-added
-
-    # Track which people are currently in the ePPM people pool (for assigning to projects)
+    cancelled_project_ids = set()
+    compliance_state = {}
+    removed_pms = []  # (cycle_num, person) — PMs who left org
     active_eppm_people = list(initial_eppm_pool)
-    # Track all people who have ever been in ePPM (need to appear in Fuse)
-    all_eppm_person_ids = {p["person_id"] for p in initial_eppm_pool}
-
-    # New PMs added per cycle (for reporting)
+    all_eppm_person_ids = {pp["person_id"] for pp in initial_eppm_pool}
     new_pms_per_cycle = {}
 
-    cycles_data = {}
+    # --- Create initial project registry with stable assignments ---
+    project_registry = create_project_registry(
+        active_eppm_people, portfolio_pool, rng,
+        num_projects=p["num_projects"],
+    )
 
-    # --- Weekly cycle timing ---
-    # Each cycle = 1 week
-    # Gate advancement: avg 3 months per gate = ~13 weeks
-    #   -> probability of advancing per project per week ≈ 1/13 ≈ 0.077
-    # Training completion: people typically complete within 2-6 weeks after reminder
-    #   -> per-week completion probability starts low and increases over time
-    # New projects/PMs arrive periodically (every few weeks)
+    # Assign heavy PMs upfront (stable across cycles)
+    if p["heavy_pm_count"] > 0:
+        heavy_candidates = [hp for hp in active_eppm_people if hp["employment_type"] != "Contractor"]
+        heavy_pms = rng.sample(heavy_candidates, min(p["heavy_pm_count"], len(heavy_candidates)))
+        # Force heavy PMs onto many projects
+        active_projects = [pid for pid, proj in project_registry.items() if proj["stage"] != "Completed"]
+        for hpm in heavy_pms:
+            targets = rng.sample(active_projects, min(p["heavy_pm_project_count"], len(active_projects)))
+            for pid in targets:
+                project_registry[pid]["it_pm"] = hpm
+
+    # Assign shared emails to some projects (stable)
+    shared_email_count = max(0, int(p["num_projects"] * p["shared_email_rate"]))
+    if shared_email_count > 0:
+        shared_targets = rng.sample(list(project_registry.keys()),
+                                    min(shared_email_count, len(project_registry)))
+        for pid in shared_targets:
+            # Create a pseudo-person for the shared email
+            shared_email = rng.choice(SHARED_EMAILS)
+            project_registry[pid]["pm"] = {
+                "full_name": project_registry[pid]["pm"]["full_name"] if project_registry[pid]["pm"] else "PMO Team",
+                "email_primary": shared_email,
+                "person_id": f"SHARED_{shared_email}",
+                "employment_type": "Standard",
+            }
+
+    # Timing and training params
     GATE_ADVANCE_PROB = p["gate_advance_prob"]
     training_speed = p["training_speed"]
     skip_fund_rate = p["skip_fundamentals_rate"]
 
-    # Build lookup for new PM waves: week -> (n_projects, n_pms)
     wave_lookup = {}
     for wave_week, wave_proj, wave_pms in p["new_pm_waves"]:
         wave_lookup[wave_week] = (wave_proj, wave_pms)
@@ -944,13 +971,13 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
         "stale_rollup": p["compliance_stale_rollup_rate"],
     }
 
-    new_project_offset = 0
+    new_project_offset = p["num_projects"]  # Start new project IDs after initial batch
+    cycles_data = {}
 
     for cycle_num in range(1, max_cycles + 1):
         week = cycle_num
 
-        # Training completion probability increases over weeks.
-        # training_speed multiplier scales the curve: >1 = faster, <1 = slower.
+        # Training completion probability (scaled by training_speed)
         if week <= 4:
             fund_chance = (0.05 + week * 0.02) * training_speed
             adv_chance = (0.02 + week * 0.01) * training_speed
@@ -969,15 +996,12 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
         else:
             fund_chance = 1.0
             adv_chance = 1.0
-
         fund_chance = min(fund_chance, 1.0)
         adv_chance = min(adv_chance, 1.0)
 
-        # New projects/PMs arrive based on configured waves
         n_new_projects, n_new_pms = wave_lookup.get(week, (0, 0))
 
-        label = f"week {week}"
-        print(f"Generating Cycle {cycle_num} ({label})...")
+        print(f"Generating Cycle {cycle_num} (week {week})...")
 
         # --- Add new PMs from reserve ---
         new_pms_this_cycle = []
@@ -986,22 +1010,25 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
             new_pms_this_cycle = new_pm_reserve[:actual_new]
             new_pm_reserve = new_pm_reserve[actual_new:]
             active_eppm_people.extend(new_pms_this_cycle)
-            # New PMs also need to appear in Fuse as overlap
             for new_pm in new_pms_this_cycle:
                 overlap_ids.add(new_pm["person_id"])
                 all_eppm_person_ids.add(new_pm["person_id"])
         new_pms_per_cycle[cycle_num] = len(new_pms_this_cycle)
 
         # --- PM leaves organization ---
-        # After cycle N, some PMs disappear from the ePPM pool entirely
-        if cycle_num >= p["pm_leave_start_cycle"] and p["pm_leave_rate"] > 0:
+        if cycle_num >= p.get("pm_leave_start_cycle", 4) and p["pm_leave_rate"] > 0:
             n_leave = max(0, int(len(active_eppm_people) * p["pm_leave_rate"]))
             if n_leave > 0:
                 leavers = rng.sample(active_eppm_people, min(n_leave, len(active_eppm_people)))
                 for leaver in leavers:
                     active_eppm_people.remove(leaver)
-                    # Track for possible re-add later
                     removed_pms.append((cycle_num, leaver))
+                    # Clear their assignments in the registry
+                    for proj in project_registry.values():
+                        if proj.get("pm") is leaver:
+                            proj["pm"] = None
+                        if proj.get("it_pm") is leaver:
+                            proj["it_pm"] = None
 
         # --- PM temporarily removed then re-added ---
         if removed_pms and p["pm_readd_rate"] > 0:
@@ -1011,31 +1038,60 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
                 if rng.random() < p["pm_readd_rate"]:
                     active_eppm_people.append(pm)
                     removed_pms.remove((rem_cycle, pm))
+                    # Re-assign to some projects that need a PM
+                    vacant = [pid for pid, proj in project_registry.items()
+                              if proj.get("pm") is None and pid not in completed_project_ids]
+                    for pid in rng.sample(vacant, min(2, len(vacant))):
+                        project_registry[pid]["pm"] = pm
 
-        # shared_email_projects: applied post-generation on eppm_rows
-        shared_email_count = max(0, int(p["num_projects"] * p["shared_email_rate"]))
-
-        # --- Heavy PMs: assign some people to many projects ---
-        # (tracked separately, injected into ePPM rows after generation)
-        heavy_pms = []
-        if cycle_num == 1 and p["heavy_pm_count"] > 0:
-            heavy_candidates = [hp for hp in active_eppm_people if hp["employment_type"] != "Contractor"]
-            heavy_pms = rng.sample(heavy_candidates, min(p["heavy_pm_count"], len(heavy_candidates)))
-
-        # --- PM transfers: shuffle project assignments for some PMs ---
-        # (happens naturally since generate_eppm_data randomly assigns PMs each cycle)
-        # We force it by removing/re-adding some PMs to change their position in the pool
+        # --- PM transfers between projects ---
         if cycle_num > 1 and p["pm_transfer_rate"] > 0:
             n_transfer = max(0, int(len(active_eppm_people) * p["pm_transfer_rate"]))
             if n_transfer > 0:
                 transfer_pms = rng.sample(active_eppm_people, min(n_transfer, len(active_eppm_people)))
+                active_proj_ids = [pid for pid in project_registry
+                                   if pid not in completed_project_ids and pid not in cancelled_project_ids]
                 for tpm in transfer_pms:
-                    active_eppm_people.remove(tpm)
-                    # Re-insert at random position (changes which projects they get assigned to)
-                    active_eppm_people.insert(rng.randint(0, len(active_eppm_people)), tpm)
+                    # Find projects this PM is on
+                    current_projects = [pid for pid, proj in project_registry.items()
+                                        if proj.get("pm") is tpm or proj.get("it_pm") is tpm]
+                    if current_projects and active_proj_ids:
+                        # Move from one project to a different one
+                        old_pid = rng.choice(current_projects)
+                        new_pid = rng.choice(active_proj_ids)
+                        if old_pid != new_pid:
+                            role = "pm" if project_registry[old_pid].get("pm") is tpm else "it_pm"
+                            project_registry[old_pid][role] = None  # Vacate old
+                            project_registry[new_pid][role] = tpm   # Assign new
+
+        # --- Evolve project gates (for cycle > 1) ---
+        if cycle_num > 1:
+            evolve_registry(project_registry, rng, completed_project_ids,
+                            cancelled_project_ids, GATE_ADVANCE_PROB,
+                            p["cancel_rate_min"], p["cancel_rate_max"])
+
+        # --- Add new projects ---
+        if n_new_projects > 0:
+            new_registry = create_project_registry(
+                active_eppm_people, portfolio_pool, rng,
+                num_projects=n_new_projects,
+                project_id_offset=new_project_offset,
+            )
+            project_registry.update(new_registry)
+            new_project_offset += n_new_projects
+
+        # --- Project name changes ---
+        if cycle_num > 1 and p["project_rename_rate"] > 0:
+            active_projs = [pid for pid in project_registry
+                            if pid not in completed_project_ids and pid not in cancelled_project_ids]
+            n_rename = max(0, int(len(active_projs) * p["project_rename_rate"]))
+            if n_rename > 0:
+                suffixes = [" (Rebranded)", " v2", " - Phase 2", " (Updated)", " - New Scope"]
+                rename_targets = rng.sample(active_projs, min(n_rename, len(active_projs)))
+                for pid in rename_targets:
+                    project_registry[pid]["project_name"] += rng.choice(suffixes)
 
         # --- Update training state ---
-        # All people in overlap_ids + extra_fuse need training state
         all_fuse_person_ids = overlap_ids | extra_fuse_ids
 
         for pid in all_fuse_person_ids:
@@ -1043,130 +1099,36 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
                 person_training_state[pid] = {"fund_completed": False, "adv_completed": False}
 
             state = person_training_state[pid]
+            state["_prev"] = {"fund_completed": state["fund_completed"],
+                              "adv_completed": state["adv_completed"]}
 
-            # Save previous state for stale Fuse data simulation
-            state["_prev"] = {"fund_completed": state["fund_completed"], "adv_completed": state["adv_completed"]}
-
-            # Training revoked/expired: previously completed training gets removed
+            # Training revoked/expired
             if p["training_revoke_rate"] > 0:
                 if state["fund_completed"] and rng.random() < p["training_revoke_rate"]:
                     state["fund_completed"] = False
                 if state["adv_completed"] and rng.random() < p["training_revoke_rate"]:
                     state["adv_completed"] = False
 
-            # Progress training: usually fundamentals first, then advanced
+            # Progress training
             if not state["fund_completed"]:
                 if rng.random() < fund_chance:
                     state["fund_completed"] = True
             if not state["adv_completed"]:
                 if state["fund_completed"]:
-                    # Normal path: fundamentals done, now try advanced
                     if rng.random() < adv_chance:
                         state["adv_completed"] = True
                 elif rng.random() < adv_chance * skip_fund_rate:
-                    # Skip path: complete advanced without fundamentals
                     state["adv_completed"] = True
 
-        # --- Evolve ePPM project state ---
-        if cycle_num == 1:
-            # Generate base projects
-            eppm_rows = generate_eppm_data(
-                active_eppm_people, portfolio_pool, rng,
-                num_projects=p["num_projects"],
-                compliance_state=compliance_state,
-                compliance_noise=compliance_noise,
-            )
-            all_project_ids = [r["Project number"] for r in eppm_rows]
-            # Record initial stages for each project
-            for row in eppm_rows:
-                pid = row["Project number"]
-                if pid not in stage_overrides:
-                    stage_overrides[pid] = row["Active Stage"]
-        else:
-            # Cancel ~1-2% of active projects per cycle (ghost projects)
-            still_active = [pid for pid in all_project_ids
-                            if pid not in completed_project_ids and pid not in cancelled_project_ids]
-            n_cancel = max(0, int(len(still_active) * rng.uniform(p["cancel_rate_min"], p["cancel_rate_max"])))
-            if n_cancel > 0:
-                newly_cancelled = rng.sample(still_active, n_cancel)
-                cancelled_project_ids.update(newly_cancelled)
-                still_active = [pid for pid in still_active if pid not in cancelled_project_ids]
+        # --- Render ePPM rows from registry ---
+        eppm_rows = render_eppm_from_registry(
+            project_registry, compliance_state, rng,
+            completed_ids=completed_project_ids,
+            cancelled_ids=cancelled_project_ids,
+            compliance_noise=compliance_noise,
+        )
 
-            # Advance projects through gate sequence (G0→G1→...→G6→Completed)
-            # Each project has ~7.7% chance of advancing 1 gate per week (avg 3 months/gate)
-            for pid in still_active:
-                if rng.random() < GATE_ADVANCE_PROB:
-                    current = stage_overrides.get(pid, "G0")
-                    if current in GATE_SEQUENCE:
-                        idx = GATE_SEQUENCE.index(current)
-                        # Advance 1 gate (occasionally 2 for faster projects)
-                        advance = 1 if rng.random() < 0.85 else 2
-                        new_idx = min(idx + advance, len(GATE_SEQUENCE) - 1)
-                        new_stage = GATE_SEQUENCE[new_idx]
-                        stage_overrides[pid] = new_stage
-                        if new_stage == "Completed":
-                            completed_project_ids.add(pid)
-
-            # Generate existing projects (with updated stages)
-            eppm_rows = generate_eppm_data(
-                active_eppm_people, portfolio_pool, rng,
-                num_projects=len(all_project_ids),
-                completed_project_ids=completed_project_ids,
-                stage_overrides=stage_overrides,
-                cancelled_project_ids=cancelled_project_ids,
-                compliance_state=compliance_state,
-                compliance_noise=compliance_noise,
-            )
-
-            # Add new projects (start mostly at G0/G1)
-            if n_new_projects > 0:
-                new_project_offset += 500
-                new_rows = generate_eppm_data(
-                    active_eppm_people, portfolio_pool, rng,
-                    num_projects=n_new_projects,
-                    new_project_start=new_project_offset,
-                    compliance_state=compliance_state,
-                    compliance_noise=compliance_noise,
-                )
-                eppm_rows.extend(new_rows)
-                for row in new_rows:
-                    npid = row["Project number"]
-                    all_project_ids.append(npid)
-                    stage_overrides[npid] = row["Active Stage"]
-
-        # --- Post-process ePPM rows: shared emails, heavy PMs, project renames ---
-
-        # Shared/generic emails: replace PM email on some projects
-        if shared_email_count > 0 and eppm_rows:
-            shared_targets = rng.sample(eppm_rows, min(shared_email_count, len(eppm_rows)))
-            for row in shared_targets:
-                row["Project Manager Email"] = rng.choice(SHARED_EMAILS)
-
-        # Heavy PMs: force specific people onto many projects
-        if heavy_pms:
-            for hpm in heavy_pms:
-                target_count = p["heavy_pm_project_count"]
-                assigned = 0
-                for row in eppm_rows:
-                    if assigned >= target_count:
-                        break
-                    if row.get("Project Status") != "Completed" and assigned < target_count:
-                        # Assign as IT PM (more realistic — one person managing many)
-                        row["IT Project Manager"] = hpm["full_name"]
-                        row["IT Project Manager Email"] = hpm["email_primary"]
-                        assigned += 1
-
-        # Project name changes: some projects get renamed between cycles
-        if cycle_num > 1 and p["project_rename_rate"] > 0:
-            n_rename = max(0, int(len(eppm_rows) * p["project_rename_rate"]))
-            if n_rename > 0:
-                rename_rows = rng.sample(eppm_rows, min(n_rename, len(eppm_rows)))
-                suffixes = [" (Rebranded)", " v2", " - Phase 2", " (Updated)", " - New Scope"]
-                for row in rename_rows:
-                    old_name = row["Project Name"]
-                    row["Project Name"] = old_name + rng.choice(suffixes)
-
-        # --- Generate Fuse data using tracked state ---
+        # --- Generate Fuse data ---
         fuse_people_list = []
         seen_ids = set()
         for pid in overlap_ids:
@@ -1183,10 +1145,7 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
         cycles_data[cycle_num] = (eppm_rows, fuse_rows)
 
         # --- Check if all matchable PMs are fully certified ---
-        # Build email->person_id lookup for active_eppm_people
-        email_to_pid = {p["email_primary"]: p["person_id"] for p in active_eppm_people}
-
-        # Find PMs on active projects who are also in the Fuse overlap (matchable)
+        email_to_pid = {pp["email_primary"]: pp["person_id"] for pp in active_eppm_people}
         active_matchable_pm_ids = set()
         for row in eppm_rows:
             if row.get("Project Status") != "Completed":
@@ -1194,7 +1153,7 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
                     email = row.get(role_field)
                     if email and email in email_to_pid:
                         pid = email_to_pid[email]
-                        if pid in overlap_ids:  # Only count PMs who appear in Fuse
+                        if pid in overlap_ids:
                             active_matchable_pm_ids.add(pid)
 
         uncertified = 0
@@ -1204,12 +1163,13 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
                 uncertified += 1
 
         fund_done = sum(1 for pid in all_fuse_person_ids
-                       if person_training_state.get(pid, {}).get("fund_completed"))
+                        if person_training_state.get(pid, {}).get("fund_completed"))
         adv_done = sum(1 for pid in all_fuse_person_ids
-                      if person_training_state.get(pid, {}).get("adv_completed"))
+                       if person_training_state.get(pid, {}).get("adv_completed"))
         total_fuse = len(all_fuse_person_ids)
 
-        print(f"  Projects: {len(eppm_rows)} (ghost/cancelled: {len(cancelled_project_ids)}), Fuse records: {len(fuse_rows)}")
+        print(f"  Projects: {len(eppm_rows)} (completed: {len(completed_project_ids)}, "
+              f"cancelled: {len(cancelled_project_ids)}), Fuse records: {len(fuse_rows)}")
         print(f"  New PMs this cycle: {len(new_pms_this_cycle)}")
         print(f"  Training: Fund {fund_done}/{total_fuse} ({100*fund_done/total_fuse:.0f}%), "
               f"Adv {adv_done}/{total_fuse} ({100*adv_done/total_fuse:.0f}%)")
@@ -1220,7 +1180,6 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
             break
 
     return cycles_data, people, overlap_ids, alias_ids, new_pms_per_cycle, role_change_pool, cancelled_project_ids
-
 
 def _cycle_label(cycle_num):
     """Return a descriptive label for each weekly cycle."""

@@ -47,6 +47,121 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
+# Custom CSS theme
+# ---------------------------------------------------------------------------
+st.markdown("""
+<style>
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #f8f9fb;
+    }
+    section[data-testid="stSidebar"] .stRadio > label {
+        font-size: 0.95rem;
+    }
+
+    /* Status badges */
+    .badge {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 0.82em;
+        font-weight: 600;
+        color: white;
+    }
+    .badge-green  { background-color: #22c55e; }
+    .badge-red    { background-color: #ef4444; }
+    .badge-orange { background-color: #f59e0b; }
+    .badge-blue   { background-color: #3b82f6; }
+    .badge-purple { background-color: #8b5cf6; }
+    .badge-gray   { background-color: #6b7280; }
+
+    /* Timeline rows */
+    .tl-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid #f0f0f0;
+        font-size: 0.92em;
+    }
+    .tl-row:hover { background-color: #fafafa; }
+    .tl-label { min-width: 72px; font-weight: 600; }
+    .tl-date  { min-width: 88px; color: #6b7280; }
+    .tl-detail { color: #374151; }
+    .tl-muted  { color: #9ca3af; font-size: 0.88em; }
+
+    /* Card grid */
+    .card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 14px 18px;
+        margin-bottom: 8px;
+    }
+    .card-title { font-size: 0.82em; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; }
+    .card-value { font-size: 1.6em; font-weight: 700; color: #1e293b; }
+
+    /* Section dividers */
+    .section-divider {
+        border: none;
+        border-top: 2px solid #e2e8f0;
+        margin: 1.5em 0;
+    }
+
+    /* Sidebar section labels */
+    .sidebar-section {
+        font-size: 0.72em;
+        font-weight: 700;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 12px 0 4px 0;
+    }
+
+    /* Empty state */
+    .empty-state {
+        text-align: center;
+        padding: 3em 1em;
+        color: #94a3b8;
+    }
+    .empty-state .icon { font-size: 2.5em; margin-bottom: 0.3em; }
+    .empty-state .msg  { font-size: 1.05em; }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------
+# Helper: render badge
+# ---------------------------------------------------------------------------
+def badge(text, color="gray"):
+    """Return HTML for a colored badge. color: green/red/orange/blue/purple/gray."""
+    return f'<span class="badge badge-{color}">{text}</span>'
+
+
+def empty_state(icon, message):
+    """Render a centered empty-state block."""
+    st.markdown(
+        f'<div class="empty-state"><div class="icon">{icon}</div>'
+        f'<div class="msg">{message}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def timeline_row(label, date, detail, badge_html="", muted=""):
+    """Render a single timeline row."""
+    parts = [f'<span class="tl-label">{label}</span>']
+    if date:
+        parts.append(f'<span class="tl-date">{date}</span>')
+    if badge_html:
+        parts.append(badge_html)
+    if detail:
+        parts.append(f'<span class="tl-detail">{detail}</span>')
+    if muted:
+        parts.append(f'<span class="tl-muted">{muted}</span>')
+    st.markdown(f'<div class="tl-row">{"".join(parts)}</div>', unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -94,17 +209,23 @@ def zip_directory(dir_path):
 
 
 # ---------------------------------------------------------------------------
-# Sidebar navigation
+# Sidebar navigation — grouped into sections
 # ---------------------------------------------------------------------------
-st.sidebar.title("Training Reminder System")
+with st.sidebar:
+    st.markdown("### Training Reminder System")
+    st.caption("IT PM Certification Tracker")
+    st.markdown('<hr style="margin:8px 0 12px 0;border-color:#e2e8f0;">', unsafe_allow_html=True)
 
-page = st.sidebar.radio(
-    "Navigation",
-    ["Dashboard", "Run Cycle", "Reminders", "Templates", "Calendar", "IT PM Track Record",
-     "Cycle Comparison", "Cycle History", "Communications", "Data Quality",
-     "Settings", "Simulation", "Log Viewer", "Archive Browser", "Database Explorer"],
-    index=0,
-)
+    st.markdown('<div class="sidebar-section">Operations</div>', unsafe_allow_html=True)
+    page = st.radio(
+        "nav",
+        ["Dashboard", "Run Cycle", "Reminders", "Calendar",
+         "IT PM Track Record", "Cycle Comparison",
+         "Templates", "Cycle History", "Communications", "Data Quality",
+         "Settings", "Simulation", "Log Viewer", "Archive Browser", "Database Explorer"],
+        index=0,
+        label_visibility="collapsed",
+    )
 
 
 # ===========================================================================
@@ -118,7 +239,7 @@ if page == "Dashboard":
     conn = get_db_connection(config)
 
     if conn is None:
-        st.info("No database found. Run a processing cycle first.")
+        empty_state("database", "No database found. Run a processing cycle first.")
     else:
         try:
             cycles_df = pd.read_sql_query(
@@ -593,7 +714,7 @@ elif page == "Reminders":
     output_base = os.path.join(PROJECT_ROOT, config["paths"]["output_folder"])
 
     if not os.path.exists(output_base):
-        st.info("No output folder found. Run a processing cycle first.")
+        empty_state("outbox", "No output folder found. Run a processing cycle first.")
     else:
         output_dirs = sorted(
             [d for d in os.listdir(output_base) if os.path.isdir(os.path.join(output_base, d))],
@@ -952,15 +1073,15 @@ elif page == "Calendar":
         "group_emails": "Group Emails (consolidated)",
         "nice_to_have": "Nice-to-Have Suggestions (optional)",
     }
-    ACTION_COLORS = {
-        "run_cycle": "#4A90D9",
-        "training_reminders": "#E8913A",
-        "congratulations": "#50C878",
-        "missing_itpm": "#D94A6B",
-        "role_changed_itpm": "#9B59B6",
-        "escalations": "#E74C3C",
-        "group_emails": "#3498DB",
-        "nice_to_have": "#95A5A6",
+    ACTION_BADGE_COLORS = {
+        "run_cycle": "blue",
+        "training_reminders": "orange",
+        "congratulations": "green",
+        "missing_itpm": "red",
+        "role_changed_itpm": "purple",
+        "escalations": "red",
+        "group_emails": "blue",
+        "nice_to_have": "gray",
     }
 
     # Visual weekly grid
@@ -968,19 +1089,14 @@ elif page == "Calendar":
     for col, day in zip(day_cols, DAY_ORDER):
         actions = comms_schedule.get(day, [])
         with col:
-            st.markdown(f"#### {day.capitalize()}")
+            st.markdown(f"**{day.capitalize()}**")
             if not actions:
                 st.caption("No actions")
             else:
                 for action in actions:
                     label = ACTION_LABELS.get(action, action)
-                    color = ACTION_COLORS.get(action, "#888888")
-                    st.markdown(
-                        f'<div style="background-color:{color};color:white;padding:6px 10px;'
-                        f'border-radius:6px;margin-bottom:6px;font-size:0.85em;">'
-                        f'{label}</div>',
-                        unsafe_allow_html=True,
-                    )
+                    color = ACTION_BADGE_COLORS.get(action, "gray")
+                    st.markdown(badge(label, color), unsafe_allow_html=True)
 
     # Schedule table
     with st.expander("Schedule Table"):
@@ -1009,7 +1125,7 @@ elif page == "Calendar":
 
     conn = get_db_connection(config)
     if conn is None:
-        st.info("No database found. Run a processing cycle to see history.")
+        empty_state("database", "No database found. Run a processing cycle to see history.")
     else:
         try:
             # Get cycle data
@@ -1019,7 +1135,7 @@ elif page == "Calendar":
             )
 
             if cycles_df.empty:
-                st.info("No cycles recorded yet.")
+                empty_state("calendar", "No cycles recorded yet.")
             else:
                 # Communication counts by cycle and stage
                 comms_df = pd.read_sql_query(
@@ -1084,31 +1200,21 @@ elif page == "Calendar":
                 cycles_df["cycle_date"] = pd.to_datetime(cycles_df["cycle_timestamp"]).dt.strftime("%Y-%m-%d %H:%M")
 
                 for _, cycle in cycles_df.iterrows():
-                    status_icon = {"completed": "OK", "failed": "FAIL", "running": "..."}.get(
-                        cycle["run_status"], "?"
-                    )
                     status_color = {"completed": "green", "failed": "red", "running": "orange"}.get(
                         cycle["run_status"], "gray"
                     )
-
-                    # Get communication count for this cycle
                     comm_count_row = conn.execute(
                         "SELECT COUNT(*) as cnt FROM communication_history WHERE cycle_id = ?",
                         (cycle["id"],),
                     ).fetchone()
                     comm_count = comm_count_row["cnt"] if comm_count_row else 0
 
-                    st.markdown(
-                        f'<div style="display:flex;align-items:center;gap:12px;padding:8px 0;'
-                        f'border-bottom:1px solid #eee;">'
-                        f'<span style="background-color:{status_color};color:white;padding:2px 8px;'
-                        f'border-radius:4px;font-size:0.8em;font-weight:bold;">{status_icon}</span>'
-                        f'<strong>Cycle {cycle["id"]}</strong>'
-                        f'<span style="color:#666;">{cycle["cycle_date"]}</span>'
-                        f'<span style="color:#888;">{comm_count} communications</span>'
-                        f'<span style="color:#aaa;font-size:0.85em;">{cycle["notes"] or ""}</span>'
-                        f'</div>',
-                        unsafe_allow_html=True,
+                    timeline_row(
+                        label=f"Cycle {cycle['id']}",
+                        date=cycle["cycle_date"],
+                        detail=f"{comm_count} communications",
+                        badge_html=badge(cycle["run_status"], status_color),
+                        muted=cycle["notes"] or "",
                     )
 
                 # ----------------------------------------------------------
@@ -1202,7 +1308,7 @@ elif page == "IT PM Track Record":
     conn = get_db_connection(config)
 
     if conn is None:
-        st.info("No database found. Run a processing cycle first.")
+        empty_state("database", "No database found. Run a processing cycle first.")
     else:
         try:
             # Load all PMs
@@ -1320,25 +1426,17 @@ elif page == "IT PM Track Record":
                         for _, row in training_hist.iterrows():
                             fund = row["fundamentals_status"]
                             adv = row["advanced_status"]
-                            fund_icon = "OK" if fund == "completed" else "---"
-                            adv_icon = "OK" if adv == "completed" else "---"
-                            fund_color = "green" if fund == "completed" else "#cc4444"
-                            adv_color = "green" if adv == "completed" else "#cc4444"
+                            fund_badge = badge("Fund: OK", "green") if fund == "completed" else badge("Fund: ---", "red")
+                            adv_badge = badge("Adv: OK", "green") if adv == "completed" else badge("Adv: ---", "red")
                             eligibility = row["eligibility_status"] or ""
 
-                            st.markdown(
-                                f'<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #eee;">'
-                                f'<strong style="min-width:70px;">Cycle {row["cycle_id"]}</strong>'
-                                f'<span style="color:#888;min-width:90px;">{row["cycle_timestamp"][:10]}</span>'
-                                f'<span style="background:{fund_color};color:white;padding:2px 8px;border-radius:4px;font-size:0.8em;">Fund: {fund_icon}</span>'
-                                f'<span style="background:{adv_color};color:white;padding:2px 8px;border-radius:4px;font-size:0.8em;">Adv: {adv_icon}</span>'
-                                f'<span style="color:#888;font-size:0.85em;">Match: {row["match_method"] or "?"}</span>'
-                                f'<span style="color:#666;font-size:0.85em;">{eligibility}</span>'
-                                f'</div>',
-                                unsafe_allow_html=True,
+                            timeline_row(
+                                label=f"Cycle {row['cycle_id']}",
+                                date=row["cycle_timestamp"][:10],
+                                detail="",
+                                badge_html=f"{fund_badge} {adv_badge}",
+                                muted=f"Match: {row['match_method'] or '?'} | {eligibility}",
                             )
-
-                        st.markdown("")  # spacer
 
                         with st.expander("Full Training Data Table"):
                             st.dataframe(training_hist, width="stretch", hide_index=True)
@@ -1415,25 +1513,21 @@ elif page == "IT PM Track Record":
                             stage = row["reminder_stage"]
                             label = STAGE_LABELS.get(stage, f"Stage {stage}")
                             if stage == 99:
-                                color = "#50C878"
+                                color = "green"
                             elif stage < 0:
-                                color = "#9B59B6"
+                                color = "purple"
                             elif stage == 0:
-                                color = "#D94A6B"
+                                color = "red"
                             elif stage <= 2:
-                                color = "#E8913A"
+                                color = "orange"
                             else:
-                                color = "#E74C3C"
+                                color = "red"
 
-                            st.markdown(
-                                f'<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #eee;">'
-                                f'<span style="background:{color};color:white;padding:2px 10px;border-radius:4px;'
-                                f'font-size:0.8em;font-weight:bold;min-width:100px;text-align:center;">{label}</span>'
-                                f'<strong>Cycle {row["cycle_id"]}</strong>'
-                                f'<span style="color:#888;">{row["cycle_timestamp"][:10]}</span>'
-                                f'<span style="color:#555;">{row["email_subject"]}</span>'
-                                f'</div>',
-                                unsafe_allow_html=True,
+                            timeline_row(
+                                label=f"Cycle {row['cycle_id']}",
+                                date=row["cycle_timestamp"][:10],
+                                detail=row["email_subject"],
+                                badge_html=badge(label, color),
                             )
 
                         # Email preview
@@ -1560,27 +1654,23 @@ elif page == "IT PM Track Record":
                     else:
                         events_df = pd.DataFrame(events).sort_values(["cycle_id", "type"])
 
-                        TYPE_COLORS = {
-                            "Training": "#4A90D9",
-                            "Assignment": "#50C878",
+                        TYPE_BADGE = {
+                            "Training": "blue",
+                            "Assignment": "green",
                         }
 
                         for _, ev in events_df.iterrows():
                             ev_type = ev["type"]
                             if "Communication" in ev_type:
-                                color = "#E8913A"
+                                color = "orange"
                             else:
-                                color = TYPE_COLORS.get(ev_type, "#888")
+                                color = TYPE_BADGE.get(ev_type, "gray")
 
-                            st.markdown(
-                                f'<div style="display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid #eee;">'
-                                f'<span style="min-width:60px;font-weight:bold;">Cycle {ev["cycle_id"]}</span>'
-                                f'<span style="color:#888;min-width:85px;">{ev["date"]}</span>'
-                                f'<span style="background:{color};color:white;padding:2px 8px;border-radius:4px;'
-                                f'font-size:0.8em;min-width:120px;text-align:center;">{ev_type}</span>'
-                                f'<span style="color:#444;">{ev["detail"]}</span>'
-                                f'</div>',
-                                unsafe_allow_html=True,
+                            timeline_row(
+                                label=f"Cycle {ev['cycle_id']}",
+                                date=ev["date"],
+                                detail=ev["detail"],
+                                badge_html=badge(ev_type, color),
                             )
 
         finally:
@@ -1598,7 +1688,7 @@ elif page == "Cycle Comparison":
     conn = get_db_connection(config)
 
     if conn is None:
-        st.info("No database found. Run a processing cycle first.")
+        empty_state("database", "No database found. Run a processing cycle first.")
     else:
         try:
             cycles_df = pd.read_sql_query(
@@ -1822,7 +1912,7 @@ elif page == "Cycle History":
     conn = get_db_connection(config)
 
     if conn is None:
-        st.info("No database found. Run a processing cycle first.")
+        empty_state("database", "No database found. Run a processing cycle first.")
     else:
         try:
             cycles_df = pd.read_sql_query(
@@ -1830,7 +1920,7 @@ elif page == "Cycle History":
                 conn,
             )
             if cycles_df.empty:
-                st.info("No cycles recorded yet.")
+                empty_state("calendar", "No cycles recorded yet.")
             else:
                 st.dataframe(cycles_df, width="stretch", hide_index=True)
 
@@ -1982,7 +2072,7 @@ elif page == "Communications":
     conn = get_db_connection(config)
 
     if conn is None:
-        st.info("No database found. Run a processing cycle first.")
+        empty_state("database", "No database found. Run a processing cycle first.")
     else:
         try:
             comms_df = pd.read_sql_query(
@@ -2055,7 +2145,7 @@ elif page == "Data Quality":
     conn = get_db_connection(config)
 
     if conn is None:
-        st.info("No database found. Run a processing cycle first.")
+        empty_state("database", "No database found. Run a processing cycle first.")
     else:
         try:
             dq_df = pd.read_sql_query(
@@ -2163,7 +2253,7 @@ elif page == "Database Explorer":
     conn = get_db_connection(config)
 
     if conn is None:
-        st.info("No database found. Run a processing cycle first.")
+        empty_state("database", "No database found. Run a processing cycle first.")
     else:
         try:
             # List tables

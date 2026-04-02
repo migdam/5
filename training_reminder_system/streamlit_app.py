@@ -1,0 +1,615 @@
+#!/usr/bin/env python3
+##############################################################################
+# streamlit_app.py — Streamlit Web UI for the Training Reminder System
+#
+# Provides a browser-based interface for:
+#   - Uploading input Excel files (ePPM, Fuse, optional files)
+#   - Running a processing cycle
+#   - Viewing results (summary, reminders, matching stats)
+#   - Browsing the database (cycle history, communications, data quality)
+#   - Previewing generated emails
+#   - Downloading output files
+#
+# Run with:  streamlit run streamlit_app.py
+##############################################################################
+
+import sys
+import os
+import io
+import shutil
+import sqlite3
+import logging
+import tempfile
+import zipfile
+from datetime import datetime
+
+import streamlit as st
+import pandas as pd
+
+# Ensure project root is on the path
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, PROJECT_ROOT)
+
+from src.config_loader import load_config
+from src.repository import Database
+from src.file_loader import InputValidationError
+
+# ---------------------------------------------------------------------------
+# Page config
+# ---------------------------------------------------------------------------
+st.set_page_config(
+    page_title="Training Reminder System",
+    page_icon=":mortar_board:",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def get_config():
+    """Load config, changing to project root so relative paths work."""
+    original_dir = os.getcwd()
+    os.chdir(PROJECT_ROOT)
+    try:
+        config = load_config("config.yaml")
+    finally:
+        os.chdir(original_dir)
+    return config
+
+
+def get_db_connection(config):
+    """Return a read-only sqlite3 connection for querying."""
+    db_path = os.path.join(PROJECT_ROOT, config["paths"]["database"])
+    if not os.path.exists(db_path):
+        return None
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def save_uploaded_file(uploaded_file, dest_folder):
+    """Save an uploaded file to the input folder."""
+    os.makedirs(dest_folder, exist_ok=True)
+    dest_path = os.path.join(dest_folder, uploaded_file.name)
+    with open(dest_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    return dest_path
+
+
+def zip_directory(dir_path):
+    """Create an in-memory zip of a directory."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, _dirs, files in os.walk(dir_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, dir_path)
+                zf.write(file_path, arcname)
+    buffer.seek(0)
+    return buffer
+
+
+# ---------------------------------------------------------------------------
+# Sidebar navigation
+# ---------------------------------------------------------------------------
+st.sidebar.title("Training Reminder System")
+
+page = st.sidebar.radio(
+    "Navigation",
+    ["Run Cycle", "Cycle History", "Communications", "Data Quality", "Database Explorer"],
+    index=0,
+)
+
+
+# ===========================================================================
+# PAGE: Run Cycle
+# ===========================================================================
+if page == "Run Cycle":
+    st.title("Run Processing Cycle")
+    st.markdown(
+        "Upload input Excel files and run a processing cycle to generate training reminders."
+    )
+
+    config = get_config()
+    input_folder = os.path.join(PROJECT_ROOT, config["paths"]["input_folder"])
+
+    # --- File uploads ---
+    st.header("1. Upload Input Files")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Required Files")
+        eppm_file = st.file_uploader(
+            "ePPM Export (.xlsx)", type=["xlsx"], key="eppm",
+            help="Project assignments master list from ePPM."
+        )
+        fuse_file = st.file_uploader(
+            "Fuse Training Export (.xlsx)", type=["xlsx"], key="fuse",
+            help="Training completion records from Fuse learning platform."
+        )
+
+    with col2:
+        st.subheader("Optional Files")
+        excluded_file = st.file_uploader(
+            "Excluded Projects (.xlsx)", type=["xlsx"], key="excluded",
+            help="Ghost/cancelled projects to exclude."
+        )
+        aliases_file = st.file_uploader(
+            "Identity Aliases (.xlsx)", type=["xlsx"], key="aliases",
+            help="Manual name/email overrides for cross-system mismatches."
+        )
+        role_changes_file = st.file_uploader(
+            "Role Changes (.xlsx)", type=["xlsx"], key="role_changes",
+            help="IT PMs who have changed roles."
+        )
+
+    # --- Preview uploaded files ---
+    if eppm_file or fuse_file:
+        st.header("2. Preview Uploaded Data")
+        if eppm_file:
+            with st.expander("ePPM Data Preview", expanded=False):
+                try:
+                    df = pd.read_excel(io.BytesIO(eppm_file.getvalue()), engine="openpyxl")
+                    st.write(f"**{len(df)} rows, {len(df.columns)} columns**")
+                    st.dataframe(df.head(20), use_container_width=True)
+                except Exception as e:
+                    st.error(f"Could not read ePPM file: {e}")
+
+        if fuse_file:
+            with st.expander("Fuse Training Data Preview", expanded=False):
+                try:
+                    df = pd.read_excel(io.BytesIO(fuse_file.getvalue()), engine="openpyxl")
+                    st.write(f"**{len(df)} rows, {len(df.columns)} columns**")
+                    st.dataframe(df.head(20), use_container_width=True)
+                except Exception as e:
+                    st.error(f"Could not read Fuse file: {e}")
+
+    # --- Run cycle ---
+    st.header("3. Run Cycle")
+
+    can_run = eppm_file is not None and fuse_file is not None
+    if not can_run:
+        st.info("Upload both required files (ePPM and Fuse) to enable the Run button.")
+
+    if st.button("Run Processing Cycle", disabled=not can_run, type="primary"):
+        # Clear input folder and save uploaded files
+        if os.path.exists(input_folder):
+            for f in os.listdir(input_folder):
+                fp = os.path.join(input_folder, f)
+                if os.path.isfile(fp):
+                    os.remove(fp)
+        os.makedirs(input_folder, exist_ok=True)
+
+        save_uploaded_file(eppm_file, input_folder)
+        save_uploaded_file(fuse_file, input_folder)
+        if excluded_file:
+            save_uploaded_file(excluded_file, input_folder)
+        if aliases_file:
+            save_uploaded_file(aliases_file, input_folder)
+        if role_changes_file:
+            save_uploaded_file(role_changes_file, input_folder)
+
+        # Run the cycle
+        with st.spinner("Running processing cycle..."):
+            original_dir = os.getcwd()
+            os.chdir(PROJECT_ROOT)
+            try:
+                from main import run_cycle
+                summary = run_cycle("config.yaml")
+            except InputValidationError as e:
+                st.error(f"**Input Validation Error** - Cycle reverted.\n\n{e}")
+                summary = None
+            except Exception as e:
+                st.error(f"**Cycle failed:** {e}")
+                summary = None
+            finally:
+                os.chdir(original_dir)
+
+        if summary:
+            st.success("Cycle completed successfully!")
+
+            # Display summary
+            st.header("Cycle Results")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("PMs in ePPM", summary.get("total_pms_in_eppm", 0))
+            col2.metric("Matched PMs", summary.get("matched_pms", 0))
+            col3.metric("Eligible for Reminder", summary.get("pms_eligible_for_reminder", 0))
+            col4.metric("Reminders Generated", summary.get("training_reminders_generated", 0))
+
+            col5, col6, col7, col8 = st.columns(4)
+            col5.metric("Unmatched PMs", summary.get("unmatched_pms", 0))
+            col6.metric("Training Complete", summary.get("pms_training_complete", 0))
+            col7.metric("Congratulations", summary.get("congratulations_sent", 0))
+            col8.metric("Ghost Projects Filtered", summary.get("ghost_projects_filtered", 0))
+
+            col9, col10, col11, col12 = st.columns(4)
+            col9.metric("Missing IT PM Reminders", summary.get("missing_itpm_reminders_to_pm", 0))
+            col10.metric("Escalations to Owner", summary.get("missing_itpm_escalations_to_owner", 0))
+            col11.metric("Role Change Alerts", summary.get("role_changed_itpm_reminders", 0))
+            col12.metric("Skipped (No Email)", summary.get("skipped_no_email", 0))
+
+            # Full summary table
+            with st.expander("Full Summary Details"):
+                summary_df = pd.DataFrame(
+                    [{"Metric": k.replace("_", " ").title(), "Value": v} for k, v in summary.items()]
+                )
+                st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+            # Find latest output folder and offer download
+            output_base = os.path.join(PROJECT_ROOT, config["paths"]["output_folder"])
+            if os.path.exists(output_base):
+                output_dirs = sorted(
+                    [d for d in os.listdir(output_base) if os.path.isdir(os.path.join(output_base, d))],
+                    reverse=True,
+                )
+                if output_dirs:
+                    latest_output = os.path.join(output_base, output_dirs[0])
+                    st.header("Download Output")
+                    zip_buf = zip_directory(latest_output)
+                    st.download_button(
+                        label=f"Download Output ({output_dirs[0]}.zip)",
+                        data=zip_buf,
+                        file_name=f"{output_dirs[0]}.zip",
+                        mime="application/zip",
+                    )
+
+                    # Browse output files
+                    with st.expander("Browse Output Files"):
+                        for root, _dirs, files in os.walk(latest_output):
+                            rel_root = os.path.relpath(root, latest_output)
+                            if rel_root == ".":
+                                rel_root = ""
+                            for file in sorted(files):
+                                rel_path = os.path.join(rel_root, file) if rel_root else file
+                                file_path = os.path.join(root, file)
+                                if st.button(f"View: {rel_path}", key=f"view_{rel_path}"):
+                                    try:
+                                        with open(file_path, "r", encoding="utf-8") as fh:
+                                            content = fh.read()
+                                        if file.endswith(".md"):
+                                            st.markdown(content)
+                                        elif file.endswith(".csv"):
+                                            csv_df = pd.read_csv(file_path)
+                                            st.dataframe(csv_df, use_container_width=True)
+                                        else:
+                                            st.code(content, language=None)
+                                    except Exception as e:
+                                        st.error(f"Could not read file: {e}")
+
+
+# ===========================================================================
+# PAGE: Cycle History
+# ===========================================================================
+elif page == "Cycle History":
+    st.title("Cycle History")
+
+    config = get_config()
+    conn = get_db_connection(config)
+
+    if conn is None:
+        st.info("No database found. Run a processing cycle first.")
+    else:
+        try:
+            cycles_df = pd.read_sql_query(
+                "SELECT id, cycle_timestamp, run_status, notes FROM cycles ORDER BY id DESC",
+                conn,
+            )
+            if cycles_df.empty:
+                st.info("No cycles recorded yet.")
+            else:
+                st.dataframe(cycles_df, use_container_width=True, hide_index=True)
+
+                # Cycle detail
+                selected_cycle = st.selectbox(
+                    "Select a cycle for details",
+                    cycles_df["id"].tolist(),
+                    format_func=lambda x: f"Cycle {x} - {cycles_df[cycles_df['id']==x]['cycle_timestamp'].values[0]} ({cycles_df[cycles_df['id']==x]['run_status'].values[0]})",
+                )
+
+                if selected_cycle:
+                    st.subheader(f"Cycle {selected_cycle} Details")
+
+                    tab1, tab2, tab3, tab4 = st.tabs(
+                        ["Assignments", "Training Status", "Communications", "Data Quality"]
+                    )
+
+                    with tab1:
+                        assignments_df = pd.read_sql_query(
+                            """SELECT pm.full_name, pm.email, a.project_name, a.project_id,
+                                      a.assignment_status, a.source_file
+                               FROM assignment_snapshots a
+                               JOIN project_managers pm ON a.project_manager_id = pm.id
+                               WHERE a.cycle_id = ?
+                               ORDER BY pm.full_name""",
+                            conn,
+                            params=(selected_cycle,),
+                        )
+                        if assignments_df.empty:
+                            st.info("No assignment data for this cycle.")
+                        else:
+                            st.write(f"**{len(assignments_df)} assignments**")
+                            st.dataframe(assignments_df, use_container_width=True, hide_index=True)
+
+                    with tab2:
+                        training_df = pd.read_sql_query(
+                            """SELECT pm.full_name, pm.email,
+                                      t.fundamentals_status, t.advanced_status,
+                                      t.overall_training_status, t.match_method,
+                                      t.missing_trainings, t.eligibility_status
+                               FROM training_snapshots t
+                               JOIN project_managers pm ON t.project_manager_id = pm.id
+                               WHERE t.cycle_id = ?
+                               ORDER BY pm.full_name""",
+                            conn,
+                            params=(selected_cycle,),
+                        )
+                        if training_df.empty:
+                            st.info("No training data for this cycle.")
+                        else:
+                            st.write(f"**{len(training_df)} training records**")
+
+                            # Status breakdown
+                            col1, col2, col3 = st.columns(3)
+                            complete = len(training_df[training_df["overall_training_status"] == "complete"])
+                            incomplete = len(training_df[training_df["overall_training_status"] == "incomplete"])
+                            col1.metric("Complete", complete)
+                            col2.metric("Incomplete", incomplete)
+                            col3.metric("Total", len(training_df))
+
+                            st.dataframe(training_df, use_container_width=True, hide_index=True)
+
+                    with tab3:
+                        comms_df = pd.read_sql_query(
+                            """SELECT pm.full_name, pm.email, c.reminder_stage,
+                                      c.email_subject, c.communication_status, c.created_at
+                               FROM communication_history c
+                               JOIN project_managers pm ON c.project_manager_id = pm.id
+                               WHERE c.cycle_id = ?
+                               ORDER BY c.reminder_stage, pm.full_name""",
+                            conn,
+                            params=(selected_cycle,),
+                        )
+                        if comms_df.empty:
+                            st.info("No communications for this cycle.")
+                        else:
+                            st.write(f"**{len(comms_df)} communications**")
+
+                            # Stage breakdown
+                            stage_counts = comms_df["reminder_stage"].value_counts().sort_index()
+                            stage_labels = {
+                                0: "Missing IT PM",
+                                -1: "Escalation",
+                                -2: "Role Change",
+                                99: "Congratulations",
+                            }
+                            stage_display = pd.DataFrame({
+                                "Stage": [stage_labels.get(s, f"Stage {s}") for s in stage_counts.index],
+                                "Count": stage_counts.values,
+                            })
+                            st.dataframe(stage_display, use_container_width=True, hide_index=True)
+
+                            st.dataframe(comms_df, use_container_width=True, hide_index=True)
+
+                            # Email preview
+                            st.subheader("Email Preview")
+                            email_options = [
+                                f"{row['full_name']} - {row['email_subject']}"
+                                for _, row in comms_df.iterrows()
+                            ]
+                            if email_options:
+                                selected_email_idx = st.selectbox(
+                                    "Select an email to preview",
+                                    range(len(email_options)),
+                                    format_func=lambda x: email_options[x],
+                                )
+                                # Fetch full email body
+                                email_row = conn.execute(
+                                    """SELECT c.email_subject, c.email_body, pm.full_name, pm.email
+                                       FROM communication_history c
+                                       JOIN project_managers pm ON c.project_manager_id = pm.id
+                                       WHERE c.cycle_id = ?
+                                       ORDER BY c.reminder_stage, pm.full_name
+                                       LIMIT 1 OFFSET ?""",
+                                    (selected_cycle, selected_email_idx),
+                                ).fetchone()
+                                if email_row:
+                                    st.text(f"To: {email_row['email']}")
+                                    st.text(f"Subject: {email_row['email_subject']}")
+                                    st.markdown("---")
+                                    st.text(email_row["email_body"])
+
+                    with tab4:
+                        dq_df = pd.read_sql_query(
+                            """SELECT issue_type, person_name, email, details, created_at
+                               FROM data_quality_issues
+                               WHERE cycle_id = ?
+                               ORDER BY issue_type, person_name""",
+                            conn,
+                            params=(selected_cycle,),
+                        )
+                        if dq_df.empty:
+                            st.info("No data quality issues for this cycle.")
+                        else:
+                            st.write(f"**{len(dq_df)} issues**")
+                            st.dataframe(dq_df, use_container_width=True, hide_index=True)
+        finally:
+            conn.close()
+
+
+# ===========================================================================
+# PAGE: Communications
+# ===========================================================================
+elif page == "Communications":
+    st.title("Communication History")
+    st.markdown("View all communications across all cycles.")
+
+    config = get_config()
+    conn = get_db_connection(config)
+
+    if conn is None:
+        st.info("No database found. Run a processing cycle first.")
+    else:
+        try:
+            comms_df = pd.read_sql_query(
+                """SELECT c.cycle_id, pm.full_name, pm.email, c.reminder_stage,
+                          c.email_subject, c.communication_status, c.created_at
+                   FROM communication_history c
+                   JOIN project_managers pm ON c.project_manager_id = pm.id
+                   ORDER BY c.created_at DESC""",
+                conn,
+            )
+            if comms_df.empty:
+                st.info("No communications recorded yet.")
+            else:
+                # Filters
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    cycles = sorted(comms_df["cycle_id"].unique(), reverse=True)
+                    selected_cycles = st.multiselect("Filter by Cycle", cycles, default=[])
+                with col2:
+                    stages = sorted(comms_df["reminder_stage"].unique())
+                    stage_labels = {0: "Missing IT PM", -1: "Escalation", -2: "Role Change", 99: "Congratulations"}
+                    stage_options = {s: stage_labels.get(s, f"Stage {s}") for s in stages}
+                    selected_stages = st.multiselect(
+                        "Filter by Stage",
+                        stages,
+                        format_func=lambda x: stage_options[x],
+                        default=[],
+                    )
+                with col3:
+                    search_name = st.text_input("Search by PM Name", "")
+
+                filtered = comms_df.copy()
+                if selected_cycles:
+                    filtered = filtered[filtered["cycle_id"].isin(selected_cycles)]
+                if selected_stages:
+                    filtered = filtered[filtered["reminder_stage"].isin(selected_stages)]
+                if search_name:
+                    filtered = filtered[
+                        filtered["full_name"].str.contains(search_name, case=False, na=False)
+                    ]
+
+                st.write(f"**{len(filtered)} communications** (of {len(comms_df)} total)")
+                st.dataframe(filtered, use_container_width=True, hide_index=True)
+
+                # Per-PM communication timeline
+                st.subheader("PM Communication Timeline")
+                pm_list = sorted(comms_df["full_name"].unique())
+                selected_pm = st.selectbox("Select a PM", pm_list)
+                if selected_pm:
+                    pm_comms = comms_df[comms_df["full_name"] == selected_pm].sort_values("created_at")
+                    for _, row in pm_comms.iterrows():
+                        stage = row["reminder_stage"]
+                        label = stage_labels.get(stage, f"Stage {stage}")
+                        st.markdown(
+                            f"**Cycle {row['cycle_id']}** | {label} | "
+                            f"{row['email_subject']} | {row['created_at']}"
+                        )
+        finally:
+            conn.close()
+
+
+# ===========================================================================
+# PAGE: Data Quality
+# ===========================================================================
+elif page == "Data Quality":
+    st.title("Data Quality Issues")
+    st.markdown("View data quality issues found during processing cycles.")
+
+    config = get_config()
+    conn = get_db_connection(config)
+
+    if conn is None:
+        st.info("No database found. Run a processing cycle first.")
+    else:
+        try:
+            dq_df = pd.read_sql_query(
+                """SELECT d.cycle_id, d.issue_type, d.person_name, d.email,
+                          d.details, d.created_at
+                   FROM data_quality_issues d
+                   ORDER BY d.created_at DESC""",
+                conn,
+            )
+            if dq_df.empty:
+                st.info("No data quality issues recorded.")
+            else:
+                # Summary by type
+                st.subheader("Issues by Type")
+                type_counts = dq_df["issue_type"].value_counts()
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.dataframe(
+                        type_counts.reset_index().rename(columns={"index": "Issue Type", "issue_type": "Issue Type", "count": "Count"}),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                # Filter
+                issue_types = dq_df["issue_type"].unique().tolist()
+                selected_type = st.selectbox("Filter by Issue Type", ["All"] + issue_types)
+
+                filtered = dq_df if selected_type == "All" else dq_df[dq_df["issue_type"] == selected_type]
+                st.write(f"**{len(filtered)} issues**")
+                st.dataframe(filtered, use_container_width=True, hide_index=True)
+        finally:
+            conn.close()
+
+
+# ===========================================================================
+# PAGE: Database Explorer
+# ===========================================================================
+elif page == "Database Explorer":
+    st.title("Database Explorer")
+    st.markdown("Browse all tables in the SQLite database.")
+
+    config = get_config()
+    conn = get_db_connection(config)
+
+    if conn is None:
+        st.info("No database found. Run a processing cycle first.")
+    else:
+        try:
+            # List tables
+            tables = pd.read_sql_query(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name", conn
+            )["name"].tolist()
+
+            selected_table = st.selectbox("Select Table", tables)
+
+            if selected_table:
+                # Row count
+                count = pd.read_sql_query(f"SELECT COUNT(*) as cnt FROM [{selected_table}]", conn)["cnt"][0]
+                st.write(f"**{count} rows** in `{selected_table}`")
+
+                # Pagination
+                page_size = st.selectbox("Rows per page", [25, 50, 100, 250], index=0)
+                total_pages = max(1, (count + page_size - 1) // page_size)
+                page_num = st.number_input("Page", min_value=1, max_value=total_pages, value=1)
+                offset = (page_num - 1) * page_size
+
+                df = pd.read_sql_query(
+                    f"SELECT * FROM [{selected_table}] LIMIT ? OFFSET ?",
+                    conn,
+                    params=(page_size, offset),
+                )
+                st.dataframe(df, use_container_width=True, hide_index=True)
+
+                # Custom query
+                st.subheader("Custom SQL Query")
+                query = st.text_area(
+                    "Enter SQL query",
+                    value=f"SELECT * FROM {selected_table} LIMIT 10",
+                    height=100,
+                )
+                if st.button("Execute Query"):
+                    try:
+                        result_df = pd.read_sql_query(query, conn)
+                        st.write(f"**{len(result_df)} rows returned**")
+                        st.dataframe(result_df, use_container_width=True, hide_index=True)
+                    except Exception as e:
+                        st.error(f"Query error: {e}")
+        finally:
+            conn.close()

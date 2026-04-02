@@ -27,6 +27,9 @@ python run_simulation.py
 
 # Or run a single cycle manually
 python main.py
+
+# Or launch the Streamlit web UI
+streamlit run streamlit_app.py
 ```
 
 ## Input Files
@@ -163,10 +166,27 @@ This shows:
 - Stage 3 for those still non-compliant in cycle 3
 - No reminders for PMs who completed training between cycles
 
+## Streamlit Web UI
+
+The system includes an optional browser-based interface built with Streamlit. Launch it with:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The UI provides five pages:
+
+- **Run Cycle**: Upload ePPM and Fuse Excel files (plus optional files), preview data, run a processing cycle, view summary metrics, browse output files, and download results as a zip.
+- **Cycle History**: Browse all past cycles with detailed tabs for assignments, training status, communications, and data quality issues per cycle. Includes email preview.
+- **Communications**: Filter and search all communications across cycles. View per-PM communication timelines to see reminder progression.
+- **Data Quality**: Review unmatched PMs and other data quality issues, with filtering by issue type.
+- **Database Explorer**: Browse any table in the SQLite database with pagination, or run custom SQL queries.
+
 ## Project Structure
 
 ```
 training_reminder_system/
+├── streamlit_app.py         # Streamlit web UI
 ├── main.py                  # Entry point for single cycle
 ├── config.yaml              # All configuration
 ├── requirements.txt         # Python dependencies

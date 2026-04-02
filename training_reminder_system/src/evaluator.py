@@ -1,8 +1,41 @@
+##############################################################################
+# evaluator.py — Core Business Logic for Training Evaluation
+#
+# This module contains the main decision-making functions:
+#
+# 1. extract_pm_compliance_issues() — Scans ePPM gate compliance columns
+#    (G0/G3/G5/G6) to find non-compliant or partially compliant gates
+#    per PM. Used as personalized motivators in training reminders.
+#
+# 2. filter_ghost_projects() — Removes completed, cancelled, or manually
+#    excluded projects BEFORE any analysis. Three filtering mechanisms:
+#    status-based, stage-based, and manual exclusion list.
+#
+# 3. evaluate_training() — Checks which required courses each PM has
+#    completed. Implements the "nice-to-have" logic: if Advanced is done,
+#    Fundamentals becomes optional (not required).
+#
+# 4. get_eligible_pms() — Determines which PMs should receive reminders.
+#    Filters to PMs on active projects with incomplete training. Each PM
+#    is annotated with an eligibility_status for the audit trail.
+#
+# 5. find_projects_missing_it_pm() — Finds active projects with no IT PM
+#    assigned. Groups by responsible PM and includes Owner info for
+#    escalation if the PM doesn't respond.
+#
+# 6. find_role_changed_it_pms() — Uses the manual role_changes.xlsx to
+#    find IT PMs who changed roles. Alerts the PM to update ePPM.
+##############################################################################
+
 import logging
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+
+# ===================================================================
+# COMPLIANCE ISSUE EXTRACTION
+# ===================================================================
 
 def extract_pm_compliance_issues(eppm_df):
     """Extract compliance issues per IT PM from their assigned projects.
@@ -77,6 +110,12 @@ def extract_pm_compliance_issues(eppm_df):
     return pm_issues
 
 
+# ===================================================================
+# GHOST PROJECT FILTERING
+# Runs EARLY in the pipeline (Step 1c) — before PM extraction.
+# This ensures ghost projects never enter the analysis at all.
+# ===================================================================
+
 def filter_ghost_projects(eppm_df, excluded_projects_df, config):
     """Filter out ghost projects from ePPM data before analysis.
 
@@ -145,6 +184,13 @@ def filter_ghost_projects(eppm_df, excluded_projects_df, config):
 
     return filtered_df, ghost_count, ghost_details
 
+
+# ===================================================================
+# TRAINING EVALUATION
+# For each matched PM, determines which required courses are done.
+# KEY BUSINESS RULE: If Advanced is completed, Fundamentals becomes
+# "nice to have" (not required). The PM is considered fully certified.
+# ===================================================================
 
 def evaluate_training(matched_pms, training_df, config):
     """Evaluate training completion for each matched PM.
@@ -231,6 +277,16 @@ def evaluate_training(matched_pms, training_df, config):
     return evaluated
 
 
+# ===================================================================
+# ELIGIBILITY DETERMINATION
+# Decides which PMs should receive training reminders this cycle.
+# Each PM is annotated with eligibility_status for the audit trail:
+#   "eligible" — will receive a reminder
+#   "skipped_complete" — all training done, no reminder needed
+#   "skipped_complete_nice_to_have" — certified (Advanced done, Fund optional)
+#   "skipped_inactive" — only on completed/inactive projects
+# ===================================================================
+
 def get_eligible_pms(evaluated_pms, all_pms_df, config):
     """Filter to PMs who are assigned to active projects and have incomplete training.
 
@@ -297,6 +353,14 @@ def get_eligible_pms(evaluated_pms, all_pms_df, config):
 
     return eligible, skipped_complete, skipped_inactive, nice_to_have_only
 
+
+# ===================================================================
+# MISSING IT PM DETECTION
+# Finds active projects where the IT Project Manager field is blank.
+# Groups results by responsible PM (who should update ePPM).
+# Includes Project Owner info so the system can escalate if the PM
+# doesn't respond after a previous reminder.
+# ===================================================================
 
 def find_projects_missing_it_pm(eppm_df, config):
     """Find active projects that have no IT Project Manager assigned.
@@ -386,6 +450,14 @@ def find_projects_missing_it_pm(eppm_df, config):
 
     return result
 
+
+# ===================================================================
+# ROLE-CHANGED IT PM DETECTION
+# Uses the manually maintained role_changes.xlsx (NOT Fuse positions)
+# to find IT PMs who changed roles. The manual file is updated based
+# on feedback from people — role changes cannot be reliably detected
+# from system data alone.
+# ===================================================================
 
 def find_role_changed_it_pms(eppm_df, role_changes_df, config):
     """Find IT PMs in ePPM who have changed roles according to a manually maintained list.

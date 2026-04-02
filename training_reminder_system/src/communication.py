@@ -1,9 +1,63 @@
+##############################################################################
+# communication.py — Generate All Reminder Communications
+#
+# This module creates the actual email content for every type of reminder.
+# It is the "last mile" before output files are written — it takes the
+# evaluation results and turns them into ready-to-send emails.
+#
+# KEY DESIGN DECISIONS:
+#
+# 1. PROGRESSIVE STAGES (S1 → S2 → S3 → follow-ups):
+#    Each PM starts at Stage 1 (friendly awareness). If they still haven't
+#    completed training by the next cycle, they get Stage 2 (benefits),
+#    then Stage 3 (action-needed). After Stage 3, follow-up reminders
+#    rotate between three motivational angles.
+#
+# 2. BI-WEEKLY CADENCE AFTER STAGE 3:
+#    To prevent "reminder fatigue", after Stage 3 reminders are sent
+#    every other week (odd stages are skipped). The internal stage counter
+#    still advances so the DB tracks the real progression.
+#
+# 3. ROTATING FOLLOW-UP ANGLES (Stage 4+):
+#    Instead of repeating the same email, follow-ups rotate between:
+#      - Angle 0: "Your Projects Need You" (compliance-focused)
+#      - Angle 1: "Colleagues Are Getting Certified" (peer/social proof)
+#      - Angle 2: "How Can We Help?" (support offer)
+#
+# 4. STAGE CAP AT 3 FOR DISPLAY:
+#    The PM never sees "Stage 15" in their email. Templates receive a
+#    display_stage capped at 3 (or 4 for follow-ups). The real stage
+#    is tracked internally in the DB for audit purposes.
+#
+# 5. PERSONALIZED CONTEXT IN TEMPLATES:
+#    Templates receive rich context variables:
+#      - Training gap type (missing_both, completed_fundamentals, etc.)
+#      - Compliance issues from the PM's projects (if any)
+#      - Compliance improvements since last cycle (thank-you notes)
+#      - Partial completion acknowledgment ("Congrats on Fundamentals!")
+#      - Action links (learning platform, ePPM, Viva Engage)
+#
+# 6. ESCALATION LOGIC FOR MISSING IT PM:
+#    First time: remind the PM to assign an IT PM in ePPM.
+#    If PM was already reminded in a previous cycle: escalate to the
+#    Project Owner. Both PM and Owner get messages.
+#
+# 7. CONGRATULATIONS (Stage 99):
+#    One-time message when a PM becomes fully certified. Only sent to
+#    PMs who previously received training reminders (not to PMs who
+#    were already certified from the start).
+##############################################################################
+
 import os
 import logging
 from jinja2 import Template
 
 logger = logging.getLogger(__name__)
 
+
+# ===================================================================
+# TEMPLATE LOADING AND SELECTION
+# ===================================================================
 
 def load_template(template_path):
     """Load a Jinja2 template from a file."""
@@ -45,6 +99,13 @@ def determine_reminder_stage(pm_id, db):
     logger.debug("PM %d: last stage=%d, next stage=%d", pm_id, last_stage, next_stage)
     return next_stage
 
+
+# ===================================================================
+# REMINDER RENDERING
+# Takes PM info + context and renders a Jinja2 template into email content.
+# The template receives all the personalization variables (training gaps,
+# compliance issues, improvements, action links, etc.)
+# ===================================================================
 
 def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_trainings=None,
                     compliance_issues=None, just_completed_fundamentals=False,
@@ -127,6 +188,14 @@ def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_
         "missing_trainings": missing_trainings,
     }
 
+
+# ===================================================================
+# TRAINING REMINDER GENERATION
+# The main function that creates training reminders for all eligible PMs.
+# Handles: stage progression, bi-weekly cadence, partial completion
+# acknowledgment, compliance improvements (thank-you), and rotating
+# follow-up angles.
+# ===================================================================
 
 def generate_reminders(eligible_pms, db, cycle_id, config, pm_compliance_issues=None):
     """Generate reminder communications for all eligible PMs.
@@ -227,6 +296,13 @@ def generate_reminders(eligible_pms, db, cycle_id, config, pm_compliance_issues=
     return reminders, skipped_no_email
 
 
+# ===================================================================
+# CONGRATULATIONS GENERATION
+# One-time message when a PM becomes fully certified. Stored as
+# stage 99 in the DB. Only sent to PMs who previously received
+# training reminders (not to PMs certified from the start).
+# ===================================================================
+
 def generate_congratulations(newly_certified_pms, db, cycle_id, config):
     """Generate congratulations messages for PMs who just became fully certified.
 
@@ -301,6 +377,13 @@ def generate_congratulations(newly_certified_pms, db, cycle_id, config):
     logger.info("Generated %d congratulations messages", len(congrats))
     return congrats
 
+
+# ===================================================================
+# INTER-CYCLE CHANGE DETECTION
+# These functions compare the current cycle's data against previous
+# cycles to detect meaningful changes (course completion, compliance
+# improvements) that should be acknowledged in the next reminder.
+# ===================================================================
 
 def _detect_partial_completion(pm_id, db, current_pm):
     """Check if PM completed a course since their last training reminder.
@@ -391,6 +474,13 @@ def _detect_compliance_improvements(pm_id, db, current_issues):
 
     return improvements
 
+
+# ===================================================================
+# MISSING IT PM REMINDERS + ESCALATION
+# First reminder cycle: notify the PM to assign an IT PM in ePPM.
+# If PM was already reminded in a previous cycle and IT PM is STILL
+# missing: escalate to the Project Owner. The PM also gets a repeat.
+# ===================================================================
 
 def _was_pm_previously_reminded_itpm(pm_email, db):
     """Check if a PM was already sent a missing IT PM reminder in a previous cycle."""
@@ -609,6 +699,13 @@ def generate_missing_itpm_reminders(missing_itpm_list, db, cycle_id, config):
 
     return pm_reminders, escalation_reminders
 
+
+# ===================================================================
+# ROLE-CHANGED IT PM REMINDERS
+# Alerts the PM that an IT PM listed on their project has changed roles
+# (based on the manually maintained role_changes.xlsx).
+# Stored as stage -2 in the DB.
+# ===================================================================
 
 def generate_role_changed_reminders(role_changed_list, db, cycle_id, config):
     """Generate reminders for PMs whose projects have an IT PM who changed roles.

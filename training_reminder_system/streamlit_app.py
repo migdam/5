@@ -16,15 +16,17 @@
 import sys
 import os
 import io
+import json
+import re
 import shutil
 import sqlite3
-import logging
-import tempfile
+import subprocess
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import streamlit as st
 import pandas as pd
+import yaml
 
 # Ensure project root is on the path
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -197,11 +199,10 @@ if page == "Dashboard":
                     ).fetchall()
 
                     # Collect unique projects with issues
-                    import json as json_mod
                     projects_with_issues = set()
                     for r in rows:
                         try:
-                            issues = json_mod.loads(r["compliance_issues_json"])
+                            issues = json.loads(r["compliance_issues_json"])
                             if isinstance(issues, list):
                                 for issue in issues:
                                     pid = issue.get("project_id")
@@ -842,7 +843,6 @@ elif page == "Templates":
             st.text_input("Subject Line", subject_line, disabled=True, key=f"tpl_subj_{template_key}")
 
         # Show available variables
-        import re
         variables = sorted(set(re.findall(r"\{\{(\s*[\w.]+\s*)\}\}", original_content)))
         variables = [v.strip() for v in variables]
         conditionals = sorted(set(re.findall(r"\{%\s*if\s+([\w.]+)\s*%\}", original_content)))
@@ -1151,7 +1151,6 @@ elif page == "Calendar":
                             action = stage_to_action.get(stage, "training_reminders")
                         action_counts[action] = action_counts.get(action, 0) + row["count"]
 
-                    from datetime import timedelta
                     today = datetime.now()
                     # Find next Monday
                     days_to_monday = (7 - today.weekday()) % 7
@@ -1471,18 +1470,16 @@ elif page == "IT PM Track Record":
                     if compliance_rows.empty:
                         st.info("No compliance issues recorded for this PM.")
                     else:
-                        import json as json_mod
-
                         all_issues = []
                         for _, row in compliance_rows.iterrows():
                             try:
-                                issues = json_mod.loads(row["compliance_issues_json"])
+                                issues = json.loads(row["compliance_issues_json"])
                                 if isinstance(issues, list):
                                     for issue in issues:
                                         issue["cycle_id"] = row["cycle_id"]
                                         issue["cycle_date"] = row["cycle_timestamp"][:10]
                                         all_issues.append(issue)
-                            except (json_mod.JSONDecodeError, TypeError):
+                            except (json.JSONDecodeError, TypeError):
                                 pass
 
                         if not all_issues:
@@ -1659,19 +1656,27 @@ elif page == "Cycle Comparison":
                         )
 
                         # Newly certified
-                        newly_certified = merged[
-                            (merged.get(f"overall_training_status_c{cycle_a}") != "complete")
-                            & (merged.get(f"overall_training_status_c{cycle_b}") == "complete")
-                        ]
+                        col_a_status = f"overall_training_status_c{cycle_a}"
+                        col_b_status = f"overall_training_status_c{cycle_b}"
+                        if col_a_status in merged.columns and col_b_status in merged.columns:
+                            newly_certified = merged[
+                                (merged[col_a_status] != "complete")
+                                & (merged[col_b_status] == "complete")
+                            ]
+                        else:
+                            newly_certified = pd.DataFrame()
                         # New PMs (only in cycle B)
                         new_pms = merged[merged["_merge"] == "right_only"]
                         # Left PMs (only in cycle A)
                         left_pms = merged[merged["_merge"] == "left_only"]
                         # Status changed
                         both = merged[merged["_merge"] == "both"]
-                        status_changed = both[
-                            both[f"overall_training_status_c{cycle_a}"] != both[f"overall_training_status_c{cycle_b}"]
-                        ]
+                        if col_a_status in both.columns and col_b_status in both.columns:
+                            status_changed = both[
+                                both[col_a_status] != both[col_b_status]
+                            ]
+                        else:
+                            status_changed = pd.DataFrame()
 
                         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
                         kpi1.metric("Newly Certified", len(newly_certified))
@@ -2069,7 +2074,7 @@ elif page == "Data Quality":
                 col1, col2 = st.columns([1, 2])
                 with col1:
                     st.dataframe(
-                        type_counts.reset_index().rename(columns={"index": "Issue Type", "issue_type": "Issue Type", "count": "Count"}),
+                        type_counts.reset_index().set_axis(["Issue Type", "Count"], axis=1),
                         use_container_width=True,
                         hide_index=True,
                     )
@@ -2214,7 +2219,6 @@ elif page == "Settings":
     config = get_config()
     config_path = os.path.join(PROJECT_ROOT, "config.yaml")
 
-    import yaml
 
     with open(config_path, "r", encoding="utf-8") as f:
         raw_yaml = f.read()
@@ -2359,7 +2363,6 @@ elif page == "Simulation":
                 original_dir = os.getcwd()
                 os.chdir(PROJECT_ROOT)
                 try:
-                    import subprocess
                     result = subprocess.run(
                         [sys.executable, "generate_test_data.py"],
                         capture_output=True, text=True, timeout=120,
@@ -2377,8 +2380,7 @@ elif page == "Simulation":
 
     with col_clear:
         if existing_cycles and st.button("Clear Simulation Data"):
-            import shutil as shutil_mod
-            shutil_mod.rmtree(sim_dir, ignore_errors=True)
+            shutil.rmtree(sim_dir, ignore_errors=True)
             st.success("Simulation data cleared.")
             st.rerun()
 
@@ -2398,7 +2400,6 @@ elif page == "Simulation":
                 original_dir = os.getcwd()
                 os.chdir(PROJECT_ROOT)
                 try:
-                    import subprocess
                     result = subprocess.run(
                         [sys.executable, "run_simulation.py"],
                         capture_output=True, text=True, timeout=600,

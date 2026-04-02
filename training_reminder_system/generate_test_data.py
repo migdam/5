@@ -285,7 +285,8 @@ def build_portfolio_pool(people, rng, pool_size=25):
 
 def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
                        completed_project_ids=None, new_project_start=0,
-                       stage_overrides=None, cancelled_project_ids=None):
+                       stage_overrides=None, cancelled_project_ids=None,
+                       compliance_state=None):
     """Generate ePPM project assignment data.
 
     Args:
@@ -296,6 +297,8 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
         completed_project_ids: Set of project IDs that should be marked Completed.
         new_project_start: Index offset for new projects (to generate unique IDs).
         stage_overrides: Dict of project_id -> new_stage for evolution.
+        compliance_state: Dict of project_id -> {gate: status} tracking compliance
+            evolution across cycles. Mutated in place.
     """
     if completed_project_ids is None:
         completed_project_ids = set()
@@ -405,35 +408,82 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
                 it_port, it_port_email = it_pm, it_pm_email
 
         # Compliance fields (sparse — populated for gates the project has passed)
+        # Compliance evolves across cycles: Non-compliant -> Partially -> Full
+        # Once a gate reaches Full compliance, it stays there.
         g0_comp, g0_act = (None, None)
         g3_comp, g3_act = (None, None)
         g5_comp, g5_act = (None, None)
         g6_comp, g6_act = (None, None)
 
         stage_idx = GATE_SEQUENCE.index(stage) if stage in GATE_SEQUENCE else 0
-        # G0 compliance if past G0
-        if stage_idx >= 1 and rng.random() > 0.57:
-            g0_comp = rng.choice(COMPLIANCE_VALUES)
-            g0_act = G0_ACTIONS[g0_comp]
-        # G3 compliance if past G3
-        if stage_idx >= 4 and rng.random() > 0.73:
-            g3_comp = rng.choice(COMPLIANCE_VALUES)
-            act = G3_ACTIONS[g3_comp]
-            g3_act = rng.choice(act) if isinstance(act, list) else act
-        # G5 compliance if past G5
-        if stage_idx >= 6 and rng.random() > 0.96:
-            g5_comp = rng.choice(COMPLIANCE_VALUES)
-            g5_act = G5_ACTIONS[g5_comp]
-        # G6 compliance if past G6
-        if stage_idx >= 7 and rng.random() > 0.98:
-            g6_comp = rng.choice(COMPLIANCE_VALUES)
-            g6_act = G6_ACTIONS[g6_comp]
 
-        proj_compliance = None
+        if compliance_state is not None:
+            proj_comp = compliance_state.setdefault(proj_id, {})
+        else:
+            proj_comp = {}
+
+        def _evolve_gate(gate, min_stage_idx, appear_prob, action_map):
+            """Get compliance for a gate, evolving from prior state."""
+            if stage_idx < min_stage_idx:
+                return None, None
+            if rng.random() < appear_prob:
+                return None, None  # Not reported this cycle
+
+            prev = proj_comp.get(gate)
+            if prev is None:
+                # First time: assign initial compliance (weighted toward non-compliant)
+                val = rng.choices(COMPLIANCE_VALUES, weights=[0.25, 0.40, 0.35])[0]
+            elif prev == "Full compliance":
+                val = "Full compliance"  # Never regresses
+            elif prev == "Partially compliant":
+                # 30% chance to improve to Full each cycle
+                val = "Full compliance" if rng.random() < 0.30 else "Partially compliant"
+            else:  # Non-compliant
+                # 20% chance to improve to Partially, 5% chance to jump to Full
+                roll = rng.random()
+                if roll < 0.05:
+                    val = "Full compliance"
+                elif roll < 0.25:
+                    val = "Partially compliant"
+                else:
+                    val = "Non-compliant"
+
+            proj_comp[gate] = val
+            act = action_map[val]
+            act = rng.choice(act) if isinstance(act, list) else act
+            return val, act
+
+        # G0 compliance if past G0 (43% chance of being reported)
+        g0_comp, g0_act = _evolve_gate("G0", 1, 0.57, G0_ACTIONS)
+        # G3 compliance if past G3 (27% chance of being reported)
+        g3_comp, g3_act = _evolve_gate("G3", 4, 0.73, G3_ACTIONS)
+        # G5 compliance if past G5 (4% chance of being reported)
+        g5_comp, g5_act = _evolve_gate("G5", 6, 0.96, G5_ACTIONS)
+        # G6 compliance if past G6 (2% chance of being reported)
+        g6_comp, g6_act = _evolve_gate("G6", 7, 0.98, G6_ACTIONS)
+
+        # Overall project compliance also evolves
+        prev_proj = proj_comp.get("project")
         if rng.random() > 0.476:
-            proj_compliance = rng.choices(
-                COMPLIANCE_VALUES, weights=[0.5, 0.35, 0.15]
-            )[0]
+            if prev_proj is None:
+                proj_compliance = rng.choices(
+                    COMPLIANCE_VALUES, weights=[0.5, 0.35, 0.15]
+                )[0]
+            elif prev_proj == "Full compliance":
+                proj_compliance = "Full compliance"
+            elif prev_proj == "Partially compliant":
+                proj_compliance = "Full compliance" if rng.random() < 0.25 else "Partially compliant"
+            else:
+                roll = rng.random()
+                if roll < 0.05:
+                    proj_compliance = "Full compliance"
+                elif roll < 0.20:
+                    proj_compliance = "Partially compliant"
+                else:
+                    proj_compliance = "Non-compliant"
+            proj_comp["project"] = proj_compliance
+        else:
+            proj_compliance = None
 
         rows.append({
             "Project number": proj_id,
@@ -644,6 +694,7 @@ def generate_all_cycles(rng, max_cycles=30):
     completed_project_ids = set()
     cancelled_project_ids = set()  # Ghost projects — cancelled but not updated in ePPM
     stage_overrides = {}
+    compliance_state = {}  # project_id -> {gate: status} — tracks compliance evolution
 
     # Track which people are currently in the ePPM people pool (for assigning to projects)
     active_eppm_people = list(initial_eppm_pool)
@@ -756,6 +807,7 @@ def generate_all_cycles(rng, max_cycles=30):
             eppm_rows = generate_eppm_data(
                 active_eppm_people, portfolio_pool, rng,
                 num_projects=250,
+                compliance_state=compliance_state,
             )
             all_project_ids = [r["Project number"] for r in eppm_rows]
             # Record initial stages for each project
@@ -795,6 +847,7 @@ def generate_all_cycles(rng, max_cycles=30):
                 completed_project_ids=completed_project_ids,
                 stage_overrides=stage_overrides,
                 cancelled_project_ids=cancelled_project_ids,
+                compliance_state=compliance_state,
             )
 
             # Add new projects (start mostly at G0/G1)
@@ -804,6 +857,7 @@ def generate_all_cycles(rng, max_cycles=30):
                     active_eppm_people, portfolio_pool, rng,
                     num_projects=n_new_projects,
                     new_project_start=new_project_offset,
+                    compliance_state=compliance_state,
                 )
                 eppm_rows.extend(new_rows)
                 for row in new_rows:

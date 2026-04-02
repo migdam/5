@@ -1,5 +1,12 @@
 Subject: Your Colleagues Are Getting Certified — Join Them
 Dear {{name}},
+{% if has_compliance_improvements %}
+Thank you! Your project compliance is trending in the right direction:
+
+{% for imp in compliance_improvements %}  - {{imp.project_name}} ({{imp.project_id}}): {{imp.gate}} — previously {{imp.old_status}}, now resolved
+{% endfor %}
+Your colleagues who completed the training report that it helped them achieve exactly this kind of improvement.
+{% endif %}
 {% if just_completed_fundamentals %}
 Great work on completing the Fundamentals certification! You are almost there — completing the Advanced course will put you alongside your fully certified colleagues.
 {% endif %}

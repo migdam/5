@@ -1,5 +1,12 @@
 Subject: How Can We Help You Complete Your Training?
 Dear {{name}},
+{% if has_compliance_improvements %}
+Thank you — we can see positive progress on your projects:
+
+{% for imp in compliance_improvements %}  - {{imp.project_name}} ({{imp.project_id}}): {{imp.gate}} — previously {{imp.old_status}}, now resolved
+{% endfor %}
+Meeting the PM Standard on these gates is a meaningful achievement. The training will help you sustain and build on this momentum.
+{% endif %}
 {% if just_completed_fundamentals %}
 Well done on completing the Fundamentals certification! We want to make sure you have everything you need to finish the last step.
 {% endif %}

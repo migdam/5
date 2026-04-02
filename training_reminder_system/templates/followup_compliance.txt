@@ -1,5 +1,12 @@
 Subject: Your Projects Need You: Complete Your PM Training
 Dear {{name}},
+{% if has_compliance_improvements %}
+Thank you! We are glad to see compliance improvements on your project(s):
+
+{% for imp in compliance_improvements %}  - {{imp.project_name}} ({{imp.project_id}}): {{imp.gate}} — previously {{imp.old_status}}, now resolved
+{% endfor %}
+Adhering to the standard makes a real difference — and the training builds on exactly this.
+{% endif %}
 {% if just_completed_fundamentals %}
 Congratulations on completing the Fundamentals certification! You are making great progress. Here is why completing the Advanced course matters right now.
 {% endif %}

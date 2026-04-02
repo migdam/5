@@ -48,7 +48,7 @@ def determine_reminder_stage(pm_id, db):
 
 def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_trainings=None,
                     compliance_issues=None, just_completed_fundamentals=False,
-                    reminder_angle=None):
+                    reminder_angle=None, compliance_improvements=None):
     """Render a reminder email using the appropriate stage template.
 
     Passes structured training gap info to templates so they can
@@ -68,6 +68,8 @@ def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_
         nice_to_have_trainings = []
     if compliance_issues is None:
         compliance_issues = []
+    if compliance_improvements is None:
+        compliance_improvements = []
 
     template_content = load_template(template_path)
 
@@ -107,6 +109,8 @@ def render_reminder(name, email, missing_trainings, stage, config, nice_to_have_
         "compliance_issues": unique_compliance,
         "has_compliance_issues": len(unique_compliance) > 0,
         "just_completed_fundamentals": just_completed_fundamentals,
+        "compliance_improvements": compliance_improvements,
+        "has_compliance_improvements": len(compliance_improvements) > 0,
     }
 
     # Render with Jinja2
@@ -186,6 +190,9 @@ def generate_reminders(eligible_pms, db, cycle_id, config, pm_compliance_issues=
         # Detect partial completion (completed one course since last reminder)
         just_completed_fundamentals = _detect_partial_completion(pm_id, db, pm)
 
+        # Detect compliance improvements since last cycle
+        compliance_improvements = _detect_compliance_improvements(pm_id, db, compliance_issues)
+
         # Cap visible stage at 3 for templates; for stage 4+ use rotating follow-up
         if stage <= 3:
             display_stage = stage
@@ -200,6 +207,7 @@ def generate_reminders(eligible_pms, db, cycle_id, config, pm_compliance_issues=
             name, email, missing, display_stage, config, nice_to_have,
             compliance_issues, just_completed_fundamentals=just_completed_fundamentals,
             reminder_angle=reminder_angle,
+            compliance_improvements=compliance_improvements,
         )
         reminder["actual_stage"] = stage  # Keep real stage for DB tracking
 
@@ -328,6 +336,58 @@ def _detect_partial_completion(pm_id, db, current_pm):
 
     logger.debug("PM %d just completed Fundamentals (was incomplete in previous snapshots)", pm_id)
     return True
+
+
+def _detect_compliance_improvements(pm_id, db, current_issues):
+    """Detect gates where compliance improved since the previous cycle.
+
+    Compares the current cycle's compliance issues against the previous
+    snapshot. If a gate that was non-compliant/partially compliant before
+    is now gone (resolved) or moved to full compliance, it's an improvement.
+
+    Returns:
+        List of dicts: {project_name, project_id, gate, old_status}
+        for each improved gate. Empty list if no improvements.
+    """
+    import json
+
+    # Get previous cycle's compliance issues from audit trail
+    prev = db.conn.execute(
+        """SELECT compliance_issues_json
+           FROM training_snapshots
+           WHERE project_manager_id = ? AND compliance_issues_json IS NOT NULL
+           ORDER BY cycle_id DESC LIMIT 1""",
+        (pm_id,),
+    ).fetchone()
+
+    if not prev or not prev["compliance_issues_json"]:
+        return []
+
+    prev_issues = json.loads(prev["compliance_issues_json"])
+    if not prev_issues:
+        return []
+
+    # Build set of current issue keys: (project_id, gate)
+    current_keys = set()
+    for issue in (current_issues or []):
+        current_keys.add((issue["project_id"], issue["gate"]))
+
+    # Find gates that were problematic before but are resolved now
+    improvements = []
+    for old_issue in prev_issues:
+        key = (old_issue["project_id"], old_issue["gate"])
+        if key not in current_keys:
+            improvements.append({
+                "project_name": old_issue.get("project_name", ""),
+                "project_id": old_issue["project_id"],
+                "gate": old_issue["gate"],
+                "old_status": old_issue.get("compliance_status", ""),
+            })
+
+    if improvements:
+        logger.debug("PM %d: %d compliance improvements detected", pm_id, len(improvements))
+
+    return improvements
 
 
 def _was_pm_previously_reminded_itpm(pm_email, db):

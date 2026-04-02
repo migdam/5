@@ -2,6 +2,13 @@ Subject: Follow-up Reminder: Your Project Management Training Is Still Outstandi
 Dear {{name}},
 
 This is a follow-up reminder regarding your outstanding project management training.
+{% if has_compliance_improvements %}
+Thank you for the progress on your projects! Compliance has improved on the following gate(s):
+
+{% for imp in compliance_improvements %}  - {{imp.project_name}} ({{imp.project_id}}): {{imp.gate}} — previously {{imp.old_status}}, now resolved
+{% endfor %}
+This is exactly the kind of outcome that the training supports.
+{% endif %}
 {% if just_completed_fundamentals %}
 First of all — congratulations on completing the Fundamentals certification! That is a great achievement and shows your commitment to professional development. You are now one step away from being fully certified.
 {% endif %}

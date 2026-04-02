@@ -1,5 +1,12 @@
 Subject: Your Project Management Training: A Great Opportunity to Strengthen Your Skills
 Dear {{name}},
+{% if has_compliance_improvements %}
+Thank you! We are pleased to see that compliance has improved on the following project gate(s):
+
+{% for imp in compliance_improvements %}  - {{imp.project_name}} ({{imp.project_id}}): {{imp.gate}} — previously {{imp.old_status}}, now resolved
+{% endfor %}
+This shows real commitment to the PM Standard — great work!
+{% endif %}
 {% if just_completed_fundamentals %}
 Congratulations on completing the Fundamentals certification! That is a great milestone. You are now one step away from being fully certified.
 {% endif %}

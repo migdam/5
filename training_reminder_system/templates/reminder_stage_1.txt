@@ -2,7 +2,13 @@ Subject: Friendly Reminder: Project Management Training Available for You
 Dear {{name}},
 
 I hope this message finds you well.
+{% if has_compliance_improvements %}
+Before we continue, we wanted to say thank you! We noticed that compliance has improved on the following project gate(s):
 
+{% for imp in compliance_improvements %}  - {{imp.project_name}} ({{imp.project_id}}): {{imp.gate}} — previously {{imp.old_status}}, now resolved
+{% endfor %}
+This is great progress and shows the positive impact of adhering to the Project Management Standard. Well done!
+{% endif %}
 As part of our ongoing commitment to supporting project managers in delivering excellent results, we wanted to let you know that there are training opportunities available to you that can strengthen your skills and confidence.
 {% if missing_both %}
 You currently have two courses to complete:

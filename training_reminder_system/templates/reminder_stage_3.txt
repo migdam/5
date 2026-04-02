@@ -1,5 +1,12 @@
 Subject: Action Needed: Complete Your Project Management Training
 Dear {{name}},
+{% if has_compliance_improvements %}
+First, thank you! We can see that compliance has improved on the following gate(s):
+
+{% for imp in compliance_improvements %}  - {{imp.project_name}} ({{imp.project_id}}): {{imp.gate}} — previously {{imp.old_status}}, now resolved
+{% endfor %}
+This demonstrates the value of following the PM Standard — and it is exactly what the training reinforces.
+{% endif %}
 {% if just_completed_fundamentals %}
 Congratulations on completing the Fundamentals certification! You have made real progress, and we want to help you take the final step toward full certification.
 {% endif %}

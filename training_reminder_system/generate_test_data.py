@@ -148,6 +148,7 @@ FUNDAMENTALS_ID = "1920150"
 ADVANCED_ID = "1920177"
 
 # Curated name lists for reproducibility
+# Includes Unicode/accented names to test cross-system normalization
 FIRST_NAMES = [
     "Maya", "Daniel", "Olivia", "Sofia", "Emma", "Nathan", "Laura", "Kevin",
     "Noah", "Ava", "Liam", "Jenny", "Alex", "Lena", "James", "Sarah",
@@ -163,6 +164,25 @@ FIRST_NAMES = [
     "Petra", "Anton", "Sabine", "Jan", "Ursula", "Leo", "Theresa",
     "Max", "Rosa", "Robin", "Astrid", "Elias", "Marta", "Filip",
     "Dorota", "Pawel", "Agnieszka", "Tomas", "Katarina", "Andrei", "Simona",
+    # Unicode/accented names — may get ASCII-ified in some systems
+    "José", "François", "Łukasz", "Björn", "Søren", "René", "Müller-Hans",
+    "Zoë", "Clémentine", "Héléne", "Jiří", "Małgorzata", "Péter", "Ádám",
+]
+
+# ASCII equivalents for Unicode names (simulates Fuse stripping accents)
+UNICODE_TO_ASCII = {
+    "José": "Jose", "François": "Francois", "Łukasz": "Lukasz",
+    "Björn": "Bjorn", "Søren": "Soren", "René": "Rene",
+    "Müller-Hans": "Muller-Hans", "Zoë": "Zoe", "Clémentine": "Clementine",
+    "Héléne": "Helene", "Jiří": "Jiri", "Małgorzata": "Malgorzata",
+    "Péter": "Peter", "Ádám": "Adam",
+}
+
+# Shared/generic email addresses used for team accounts
+SHARED_EMAILS = [
+    "pmo-team@corp.example",
+    "it-projects@corp.example",
+    "delivery-office@corp.example",
 ]
 
 LAST_NAMES = [
@@ -190,21 +210,37 @@ LAST_NAMES = [
 # People Master Builder
 # ============================================================
 
-def build_people_master(rng, num_people=200):
-    """Build a master list of synthetic people."""
+def build_people_master(rng, num_people=200, name_collision_count=3):
+    """Build a master list of synthetic people.
+
+    Args:
+        rng: Random number generator.
+        num_people: Total people to generate.
+        name_collision_count: Number of duplicate-name pairs to create
+            (different people with the same full name but different emails).
+    """
     used_emails = set()
     people = []
 
-    # Shuffle name combos
+    # Shuffle name combos — wraps around if num_people exceeds combinations
     name_combos = []
     for fn in FIRST_NAMES:
         for ln in LAST_NAMES:
             name_combos.append((fn, ln))
     rng.shuffle(name_combos)
 
+    # If we need more people than unique combos, allow reuse with numeric suffix
+    if num_people > len(name_combos):
+        extra_needed = num_people - len(name_combos)
+        extra_combos = [name_combos[i % len(name_combos)] for i in range(extra_needed)]
+        name_combos = name_combos + extra_combos
+
     for i in range(num_people):
         fn, ln = name_combos[i]
         full_name = f"{fn} {ln}"
+
+        # Track if this is a Unicode name (for ASCII-ification in Fuse)
+        has_unicode = fn in UNICODE_TO_ASCII
 
         # Employment type
         emp_roll = rng.random()
@@ -221,7 +257,10 @@ def build_people_master(rng, num_people=200):
         else:
             domain = DOMAINS["primary"]
 
-        local_part = f"{fn.lower()}.{ln.lower()}"
+        # For email, always use ASCII-safe version of name
+        fn_email = UNICODE_TO_ASCII.get(fn, fn).lower().replace("-", "")
+        ln_email = ln.lower().replace("-", "")
+        local_part = f"{fn_email}.{ln_email}"
         email = f"{local_part}@{domain}"
         if email in used_emails:
             email = f"{local_part}{i}@{domain}"
@@ -241,6 +280,7 @@ def build_people_master(rng, num_people=200):
         people.append({
             "person_id": f"P{i+1:05d}",
             "full_name": full_name,
+            "full_name_ascii": f"{UNICODE_TO_ASCII.get(fn, fn)} {ln}" if has_unicode else None,
             "first_name": fn,
             "last_name": ln,
             "email_primary": email,
@@ -253,6 +293,40 @@ def build_people_master(rng, num_people=200):
             "gender": gender,
             "hire_date": hire_date,
             "pernr": 10000001 + i,
+            "has_unicode_name": has_unicode,
+            "is_shared_email": False,
+        })
+
+    # --- Name collisions: create pairs of different people with the same name ---
+    # Pick existing people and create new people with the same name but different email
+    non_unicode = [p for p in people if not p["has_unicode_name"]]
+    collision_sources = rng.sample(non_unicode, min(name_collision_count, len(non_unicode)))
+    for src in collision_sources:
+        # Find the person and mark it
+        new_id = f"P{len(people)+1:05d}"
+        new_email = f"{src['first_name'].lower()}.{src['last_name'].lower()}.dup@{DOMAINS['primary']}"
+        if new_email in used_emails:
+            new_email = f"{src['first_name'].lower()}.{src['last_name'].lower()}.dup{len(people)}@{DOMAINS['primary']}"
+        used_emails.add(new_email)
+        people.append({
+            "person_id": new_id,
+            "full_name": src["full_name"],  # Same name!
+            "full_name_ascii": None,
+            "first_name": src["first_name"],
+            "last_name": src["last_name"],
+            "email_primary": new_email,
+            "email_aliases": [],
+            "employment_type": "Standard",
+            "region": rng.choice(list(REGIONS.keys())),
+            "country": rng.choice(sum(REGIONS.values(), [])),
+            "function": rng.choice(FUNCTIONS),
+            "position": rng.choice(POSITIONS),
+            "gender": src["gender"],
+            "hire_date": src["hire_date"] + timedelta(days=rng.randint(30, 365)),
+            "pernr": 10000001 + len(people),
+            "has_unicode_name": False,
+            "is_shared_email": False,
+            "name_collision_with": src["person_id"],
         })
 
     return people
@@ -551,7 +625,8 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
 # Fuse Generator
 # ============================================================
 
-def generate_fuse_data(fuse_people, person_training_state, rng, cycle_num=1):
+def generate_fuse_data(fuse_people, person_training_state, rng, cycle_num=1,
+                       params=None):
     """Generate Fuse training data using tracked per-person training state.
 
     Args:
@@ -559,18 +634,37 @@ def generate_fuse_data(fuse_people, person_training_state, rng, cycle_num=1):
         person_training_state: Dict of person_id -> {fund_completed, adv_completed}.
         rng: Random number generator.
         cycle_num: Cycle number (affects dates).
+        params: Generation parameters dict.
     """
+    if params is None:
+        params = {}
+    training_fail_rate = params.get("training_fail_rate", 0.05)
+    passing_score = params.get("training_passing_score", 70.0)
+    in_progress_rate = params.get("training_in_progress_rate", 0.08)
+    stale_fuse_rate = params.get("stale_fuse_rate", 0.03)
+    export_offset_days = params.get("export_date_offset_days", 2)
+    unicode_ascii_rate = params.get("unicode_name_ascii_rate", 0.5)
+
     rows = []
     imdl_counter = 100001 + (cycle_num - 1) * 10000
 
     base_date = datetime(2025, 10, 1)
     cycle_offset = timedelta(days=(cycle_num - 1) * 14)
+    # Export date mismatch: Fuse export may be offset by 0-N days from ePPM
+    fuse_date_offset = timedelta(days=rng.randint(0, export_offset_days))
 
     for person in fuse_people:
         pid = person["person_id"]
         state = person_training_state.get(pid, {})
-        fund_completed = state.get("fund_completed", False)
-        adv_completed = state.get("adv_completed", False)
+
+        # Stale Fuse data: some people's data is 1 cycle behind
+        if rng.random() < stale_fuse_rate and cycle_num > 1:
+            prev_state = state.get("_prev", {})
+            fund_completed = prev_state.get("fund_completed", False)
+            adv_completed = prev_state.get("adv_completed", False)
+        else:
+            fund_completed = state.get("fund_completed", False)
+            adv_completed = state.get("adv_completed", False)
 
         courses = [
             (FUNDAMENTALS_ID, fund_completed),
@@ -588,6 +682,12 @@ def generate_fuse_data(fuse_people, person_training_state, rng, cycle_num=1):
         if person["email_aliases"] and rng.random() < 0.5:
             email = person["email_aliases"][0]
 
+        # Unicode name ASCII-ification: some systems strip accents
+        display_name = person["full_name"]
+        if person.get("has_unicode_name") and person.get("full_name_ascii"):
+            if rng.random() < unicode_ascii_rate:
+                display_name = person["full_name_ascii"]
+
         # Generate hire date text
         hire_date = person["hire_date"]
         hire_text = hire_date.strftime("%A, %B ") + str(hire_date.day) + hire_date.strftime(", %Y")
@@ -595,15 +695,29 @@ def generate_fuse_data(fuse_people, person_training_state, rng, cycle_num=1):
         user_id = person["email_primary"].split("@")[0].replace(".", "")
 
         for course_id, is_completed in courses:
-            start_date = base_date + cycle_offset + timedelta(days=rng.randint(0, 60))
+            start_date = base_date + cycle_offset + fuse_date_offset + timedelta(days=rng.randint(0, 60))
             completion_date = None
             score = None
-            status = "completed" if is_completed else "incomplete"
 
             if is_completed:
                 completion_date = start_date + timedelta(days=rng.randint(0, 14))
                 score = round(rng.gauss(85, 8), 1)
                 score = max(60.0, min(100.0, score))
+
+                # Training score below passing: completed but failed
+                if rng.random() < training_fail_rate:
+                    score = round(rng.uniform(30.0, passing_score - 0.1), 1)
+                    # Status still shows "completed" but score is failing
+                    # (real Fuse data quirk: completion doesn't guarantee passing)
+
+                status = "completed"
+            else:
+                # Partial progress: some courses show "in_progress"
+                if rng.random() < in_progress_rate:
+                    status = "in_progress"
+                    start_date = base_date + cycle_offset + timedelta(days=rng.randint(0, 30))
+                else:
+                    status = "incomplete"
 
             content_group = None
             if rng.random() < 0.10:
@@ -613,7 +727,7 @@ def generate_fuse_data(fuse_people, person_training_state, rng, cycle_num=1):
                 "IMDL ID": imdl_counter,
                 "PerNR": person["pernr"],
                 "User ID": user_id,
-                "Full Name": person["full_name"],
+                "Full Name": display_name,
                 "Gender": person["gender"],
                 "Email": email,
                 "Employee Group": person["employment_type"],
@@ -712,6 +826,34 @@ DEFAULT_PARAMS = {
         (15, 4, 2), (16, 4, 2),
         (19, 3, 2),
     ],
+
+    # --- New edge case scenarios ---
+
+    # People lifecycle
+    "pm_leave_rate": 0.02,           # % of PMs who leave org per cycle
+    "pm_leave_start_cycle": 4,       # First cycle PMs can leave
+    "pm_readd_rate": 0.3,            # % of removed PMs who get re-added later
+    "pm_transfer_rate": 0.05,        # % of PMs who change project assignments per cycle
+
+    # Data quality noise
+    "name_collision_count": 3,       # Number of duplicate-name pairs (different people, same name)
+    "unicode_name_ascii_rate": 0.5,  # % of Unicode-named people who appear ASCII-ified in Fuse
+    "shared_email_rate": 0.02,       # % of projects using shared/generic PM email
+    "project_rename_rate": 0.03,     # % of projects that change name between cycles
+
+    # Training edge cases
+    "training_fail_rate": 0.05,      # % of "completed" courses with score below passing
+    "training_passing_score": 70.0,  # Minimum passing score
+    "training_revoke_rate": 0.02,    # % of completed trainings that get revoked per cycle
+    "training_in_progress_rate": 0.08,  # % of courses shown as "in_progress" instead of incomplete
+
+    # Timing
+    "stale_fuse_rate": 0.03,         # % of people whose Fuse data is 1 cycle behind
+    "export_date_offset_days": 2,    # Max days between ePPM and Fuse exports
+
+    # Scale
+    "heavy_pm_count": 2,             # Number of PMs assigned to 20+ projects
+    "heavy_pm_project_count": 25,    # How many projects per heavy PM
 }
 
 
@@ -728,16 +870,21 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
     if params:
         p.update(params)
 
-    people = build_people_master(rng, num_people=p["num_people"])
+    people = build_people_master(rng, num_people=p["num_people"],
+                                name_collision_count=p.get("name_collision_count", 3))
     alias_ids = assign_aliases(people, rng, rate=p["alias_rate"])
     portfolio_pool = build_portfolio_pool(people, rng, pool_size=p["portfolio_pool_size"])
 
     non_contractor = [p_person for p_person in people if p_person["employment_type"] != "Contractor"]
     people_by_id = {p_person["person_id"]: p_person for p_person in people}
 
-    initial_pool_size = min(p["initial_eppm_pool"], len(non_contractor))
-    initial_eppm_pool = non_contractor[:initial_pool_size]
-    new_pm_reserve = non_contractor[initial_pool_size:]
+    # Ensure name-collision people are in the initial pool (not just the reserve)
+    collision_people = [p_person for p_person in people if p_person.get("name_collision_with")]
+    regular_non_contractor = [p_person for p_person in non_contractor if not p_person.get("name_collision_with")]
+
+    initial_pool_size = min(p["initial_eppm_pool"], len(regular_non_contractor))
+    initial_eppm_pool = regular_non_contractor[:initial_pool_size] + collision_people
+    new_pm_reserve = regular_non_contractor[initial_pool_size:]
     rng.shuffle(new_pm_reserve)
 
     overlap_count = int(len(initial_eppm_pool) * p["overlap_rate"])
@@ -763,6 +910,7 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
     cancelled_project_ids = set()  # Ghost projects — cancelled but not updated in ePPM
     stage_overrides = {}
     compliance_state = {}  # project_id -> {gate: status} — tracks compliance evolution
+    removed_pms = []       # (cycle_num, person) — PMs who left, may be re-added
 
     # Track which people are currently in the ePPM people pool (for assigning to projects)
     active_eppm_people = list(initial_eppm_pool)
@@ -839,10 +987,52 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
             new_pm_reserve = new_pm_reserve[actual_new:]
             active_eppm_people.extend(new_pms_this_cycle)
             # New PMs also need to appear in Fuse as overlap
-            for p in new_pms_this_cycle:
-                overlap_ids.add(p["person_id"])
-                all_eppm_person_ids.add(p["person_id"])
+            for new_pm in new_pms_this_cycle:
+                overlap_ids.add(new_pm["person_id"])
+                all_eppm_person_ids.add(new_pm["person_id"])
         new_pms_per_cycle[cycle_num] = len(new_pms_this_cycle)
+
+        # --- PM leaves organization ---
+        # After cycle N, some PMs disappear from the ePPM pool entirely
+        if cycle_num >= p["pm_leave_start_cycle"] and p["pm_leave_rate"] > 0:
+            n_leave = max(0, int(len(active_eppm_people) * p["pm_leave_rate"]))
+            if n_leave > 0:
+                leavers = rng.sample(active_eppm_people, min(n_leave, len(active_eppm_people)))
+                for leaver in leavers:
+                    active_eppm_people.remove(leaver)
+                    # Track for possible re-add later
+                    removed_pms.append((cycle_num, leaver))
+
+        # --- PM temporarily removed then re-added ---
+        if removed_pms and p["pm_readd_rate"] > 0:
+            still_removed = [(c, pm) for c, pm in removed_pms
+                             if pm not in active_eppm_people and cycle_num - c >= 2]
+            for rem_cycle, pm in still_removed:
+                if rng.random() < p["pm_readd_rate"]:
+                    active_eppm_people.append(pm)
+                    removed_pms.remove((rem_cycle, pm))
+
+        # shared_email_projects: applied post-generation on eppm_rows
+        shared_email_count = max(0, int(p["num_projects"] * p["shared_email_rate"]))
+
+        # --- Heavy PMs: assign some people to many projects ---
+        # (tracked separately, injected into ePPM rows after generation)
+        heavy_pms = []
+        if cycle_num == 1 and p["heavy_pm_count"] > 0:
+            heavy_candidates = [hp for hp in active_eppm_people if hp["employment_type"] != "Contractor"]
+            heavy_pms = rng.sample(heavy_candidates, min(p["heavy_pm_count"], len(heavy_candidates)))
+
+        # --- PM transfers: shuffle project assignments for some PMs ---
+        # (happens naturally since generate_eppm_data randomly assigns PMs each cycle)
+        # We force it by removing/re-adding some PMs to change their position in the pool
+        if cycle_num > 1 and p["pm_transfer_rate"] > 0:
+            n_transfer = max(0, int(len(active_eppm_people) * p["pm_transfer_rate"]))
+            if n_transfer > 0:
+                transfer_pms = rng.sample(active_eppm_people, min(n_transfer, len(active_eppm_people)))
+                for tpm in transfer_pms:
+                    active_eppm_people.remove(tpm)
+                    # Re-insert at random position (changes which projects they get assigned to)
+                    active_eppm_people.insert(rng.randint(0, len(active_eppm_people)), tpm)
 
         # --- Update training state ---
         # All people in overlap_ids + extra_fuse need training state
@@ -853,8 +1043,18 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
                 person_training_state[pid] = {"fund_completed": False, "adv_completed": False}
 
             state = person_training_state[pid]
+
+            # Save previous state for stale Fuse data simulation
+            state["_prev"] = {"fund_completed": state["fund_completed"], "adv_completed": state["adv_completed"]}
+
+            # Training revoked/expired: previously completed training gets removed
+            if p["training_revoke_rate"] > 0:
+                if state["fund_completed"] and rng.random() < p["training_revoke_rate"]:
+                    state["fund_completed"] = False
+                if state["adv_completed"] and rng.random() < p["training_revoke_rate"]:
+                    state["adv_completed"] = False
+
             # Progress training: usually fundamentals first, then advanced
-            # But ~8% of people complete Advanced directly (skipping Fundamentals)
             if not state["fund_completed"]:
                 if rng.random() < fund_chance:
                     state["fund_completed"] = True
@@ -864,7 +1064,7 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
                     if rng.random() < adv_chance:
                         state["adv_completed"] = True
                 elif rng.random() < adv_chance * skip_fund_rate:
-                    # Skip path: complete advanced without fundamentals (~8% of cases)
+                    # Skip path: complete advanced without fundamentals
                     state["adv_completed"] = True
 
         # --- Evolve ePPM project state ---
@@ -934,6 +1134,38 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
                     all_project_ids.append(npid)
                     stage_overrides[npid] = row["Active Stage"]
 
+        # --- Post-process ePPM rows: shared emails, heavy PMs, project renames ---
+
+        # Shared/generic emails: replace PM email on some projects
+        if shared_email_count > 0 and eppm_rows:
+            shared_targets = rng.sample(eppm_rows, min(shared_email_count, len(eppm_rows)))
+            for row in shared_targets:
+                row["Project Manager Email"] = rng.choice(SHARED_EMAILS)
+
+        # Heavy PMs: force specific people onto many projects
+        if heavy_pms:
+            for hpm in heavy_pms:
+                target_count = p["heavy_pm_project_count"]
+                assigned = 0
+                for row in eppm_rows:
+                    if assigned >= target_count:
+                        break
+                    if row.get("Project Status") != "Completed" and assigned < target_count:
+                        # Assign as IT PM (more realistic — one person managing many)
+                        row["IT Project Manager"] = hpm["full_name"]
+                        row["IT Project Manager Email"] = hpm["email_primary"]
+                        assigned += 1
+
+        # Project name changes: some projects get renamed between cycles
+        if cycle_num > 1 and p["project_rename_rate"] > 0:
+            n_rename = max(0, int(len(eppm_rows) * p["project_rename_rate"]))
+            if n_rename > 0:
+                rename_rows = rng.sample(eppm_rows, min(n_rename, len(eppm_rows)))
+                suffixes = [" (Rebranded)", " v2", " - Phase 2", " (Updated)", " - New Scope"]
+                for row in rename_rows:
+                    old_name = row["Project Name"]
+                    row["Project Name"] = old_name + rng.choice(suffixes)
+
         # --- Generate Fuse data using tracked state ---
         fuse_people_list = []
         seen_ids = set()
@@ -946,7 +1178,7 @@ def generate_all_cycles(rng, max_cycles=30, params=None):
                 fuse_people_list.append(people_by_id[pid])
                 seen_ids.add(pid)
 
-        fuse_rows = generate_fuse_data(fuse_people_list, person_training_state, rng, cycle_num)
+        fuse_rows = generate_fuse_data(fuse_people_list, person_training_state, rng, cycle_num, params=p)
 
         cycles_data[cycle_num] = (eppm_rows, fuse_rows)
 
@@ -1032,6 +1264,29 @@ def main():
     parser.add_argument("--compliance-data-correction", type=float, default=d["compliance_data_correction_rate"], help="Rate of data-correction downgrades")
     parser.add_argument("--compliance-stale-rollup", type=float, default=d["compliance_stale_rollup_rate"], help="Rate of stale overall compliance rollups")
 
+    # People lifecycle
+    parser.add_argument("--pm-leave-rate", type=float, default=d["pm_leave_rate"], help="Rate of PMs leaving per cycle")
+    parser.add_argument("--pm-readd-rate", type=float, default=d["pm_readd_rate"], help="Rate of removed PMs being re-added")
+    parser.add_argument("--pm-transfer-rate", type=float, default=d["pm_transfer_rate"], help="Rate of PM project transfers per cycle")
+
+    # Data quality
+    parser.add_argument("--name-collision-count", type=int, default=d["name_collision_count"], help="Number of duplicate-name pairs")
+    parser.add_argument("--shared-email-rate", type=float, default=d["shared_email_rate"], help="Rate of projects using shared PM email")
+    parser.add_argument("--project-rename-rate", type=float, default=d["project_rename_rate"], help="Rate of project name changes per cycle")
+
+    # Training edge cases
+    parser.add_argument("--training-fail-rate", type=float, default=d["training_fail_rate"], help="Rate of completed courses with failing score")
+    parser.add_argument("--training-revoke-rate", type=float, default=d["training_revoke_rate"], help="Rate of training revocations per cycle")
+    parser.add_argument("--training-in-progress-rate", type=float, default=d["training_in_progress_rate"], help="Rate of courses shown as in_progress")
+
+    # Timing
+    parser.add_argument("--stale-fuse-rate", type=float, default=d["stale_fuse_rate"], help="Rate of stale Fuse data (1 cycle behind)")
+    parser.add_argument("--export-date-offset", type=int, default=d["export_date_offset_days"], help="Max days offset between ePPM and Fuse exports")
+
+    # Scale
+    parser.add_argument("--heavy-pm-count", type=int, default=d["heavy_pm_count"], help="Number of PMs assigned to many projects")
+    parser.add_argument("--heavy-pm-projects", type=int, default=d["heavy_pm_project_count"], help="Projects per heavy PM")
+
     args = parser.parse_args()
 
     # Build params dict from CLI args
@@ -1054,6 +1309,24 @@ def main():
         "compliance_late_discovery_rate": args.compliance_late_discovery,
         "compliance_data_correction_rate": args.compliance_data_correction,
         "compliance_stale_rollup_rate": args.compliance_stale_rollup,
+        # People lifecycle
+        "pm_leave_rate": args.pm_leave_rate,
+        "pm_readd_rate": args.pm_readd_rate,
+        "pm_transfer_rate": args.pm_transfer_rate,
+        # Data quality
+        "name_collision_count": args.name_collision_count,
+        "shared_email_rate": args.shared_email_rate,
+        "project_rename_rate": args.project_rename_rate,
+        # Training edge cases
+        "training_fail_rate": args.training_fail_rate,
+        "training_revoke_rate": args.training_revoke_rate,
+        "training_in_progress_rate": args.training_in_progress_rate,
+        # Timing
+        "stale_fuse_rate": args.stale_fuse_rate,
+        "export_date_offset_days": args.export_date_offset,
+        # Scale
+        "heavy_pm_count": args.heavy_pm_count,
+        "heavy_pm_project_count": args.heavy_pm_projects,
     }
 
     rng = random.Random(args.seed)

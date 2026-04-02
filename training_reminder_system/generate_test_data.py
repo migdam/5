@@ -423,7 +423,16 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
             proj_comp = {}
 
         def _evolve_gate(gate, min_stage_idx, appear_prob, action_map):
-            """Get compliance for a gate, evolving from prior state."""
+            """Get compliance for a gate, evolving from prior state.
+
+            Noise scenarios (matching real ePPM data quality issues):
+            - 3% chance: late discovery — audit reveals non-compliance at an
+              earlier gate that was previously reported as fully compliant
+            - 4% chance of temporary regression — a review downgrades
+              Partially compliant back to Non-compliant (data correction)
+            - Compliance data may disappear for a cycle (appear_prob) and
+              come back — simulating inconsistent reporting
+            """
             if stage_idx < min_stage_idx:
                 return None, None
             if rng.random() < appear_prob:
@@ -434,10 +443,23 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
                 # First time: assign initial compliance (weighted toward non-compliant)
                 val = rng.choices(COMPLIANCE_VALUES, weights=[0.25, 0.40, 0.35])[0]
             elif prev == "Full compliance":
-                val = "Full compliance"  # Never regresses
+                # 3% late-discovery: audit finds issues at a gate that was
+                # previously marked fully compliant (e.g., missing sign-off
+                # found during a later gate review)
+                if rng.random() < 0.03:
+                    val = rng.choice(["Partially compliant", "Non-compliant"])
+                else:
+                    val = "Full compliance"
             elif prev == "Partially compliant":
-                # 30% chance to improve to Full each cycle
-                val = "Full compliance" if rng.random() < 0.30 else "Partially compliant"
+                roll = rng.random()
+                if roll < 0.30:
+                    # 30% improve to Full
+                    val = "Full compliance"
+                elif roll < 0.34:
+                    # 4% data correction — downgraded after closer review
+                    val = "Non-compliant"
+                else:
+                    val = "Partially compliant"
             else:  # Non-compliant
                 # 20% chance to improve to Partially, 5% chance to jump to Full
                 roll = rng.random()
@@ -462,7 +484,9 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
         # G6 compliance if past G6 (2% chance of being reported)
         g6_comp, g6_act = _evolve_gate("G6", 7, 0.98, G6_ACTIONS)
 
-        # Overall project compliance also evolves
+        # Overall project compliance also evolves (with noise)
+        # Noise: 5% chance overall compliance contradicts individual gates
+        # (e.g., all gates Full but overall shows Partially — stale rollup)
         prev_proj = proj_comp.get("project")
         if rng.random() > 0.476:
             if prev_proj is None:
@@ -470,16 +494,20 @@ def generate_eppm_data(people, portfolio_pool, rng, num_projects=250,
                     COMPLIANCE_VALUES, weights=[0.5, 0.35, 0.15]
                 )[0]
             elif prev_proj == "Full compliance":
-                proj_compliance = "Full compliance"
+                # 5% stale rollup: overall hasn't been refreshed after a
+                # gate-level regression, so it still says Full even though
+                # a gate was downgraded, or vice versa
+                proj_compliance = "Partially compliant" if rng.random() < 0.05 else "Full compliance"
             elif prev_proj == "Partially compliant":
-                proj_compliance = "Full compliance" if rng.random() < 0.25 else "Partially compliant"
-            else:
                 roll = rng.random()
-                if roll < 0.05:
+                if roll < 0.25:
                     proj_compliance = "Full compliance"
-                elif roll < 0.20:
-                    proj_compliance = "Partially compliant"
+                elif roll < 0.29:
+                    # 4% data correction
+                    proj_compliance = "Non-compliant"
                 else:
+                    proj_compliance = "Partially compliant"
+            else:
                     proj_compliance = "Non-compliant"
             proj_comp["project"] = proj_compliance
         else:

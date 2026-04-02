@@ -211,21 +211,68 @@ def zip_directory(dir_path):
 # ---------------------------------------------------------------------------
 # Sidebar navigation — grouped into sections
 # ---------------------------------------------------------------------------
+
+# Page definitions grouped by section
+NAV_SECTIONS = {
+    "Weekly Operations": [
+        "Dashboard",
+        "Run Cycle",
+        "Reminders",
+        "Calendar",
+    ],
+    "Analysis": [
+        "IT PM Track Record",
+        "Cycle Comparison",
+        "Cycle History",
+        "Communications",
+        "Data Quality",
+    ],
+    "Configuration": [
+        "Templates",
+        "Settings",
+    ],
+    "Admin": [
+        "Simulation",
+        "Log Viewer",
+        "Archive Browser",
+        "Database Explorer",
+    ],
+}
+
+# Flatten for radio — Streamlit radio needs a flat list
+ALL_PAGES = []
+for pages in NAV_SECTIONS.values():
+    ALL_PAGES.extend(pages)
+
 with st.sidebar:
     st.markdown("### Training Reminder System")
     st.caption("IT PM Certification Tracker")
-    st.markdown('<hr style="margin:8px 0 12px 0;border-color:#e2e8f0;">', unsafe_allow_html=True)
 
-    st.markdown('<div class="sidebar-section">Operations</div>', unsafe_allow_html=True)
+    # Detect if DB exists for smart default page
+    _config_check = get_config()
+    _db_path = os.path.join(PROJECT_ROOT, _config_check["paths"]["database"])
+    _has_data = os.path.exists(_db_path)
+    _default_page = "Dashboard" if _has_data else "Run Cycle"
+    _default_idx = ALL_PAGES.index(_default_page)
+
+    st.markdown('<hr style="margin:8px 0 4px 0;border-color:#e2e8f0;">', unsafe_allow_html=True)
+
+    for section_name, section_pages in NAV_SECTIONS.items():
+        st.markdown(f'<div class="sidebar-section">{section_name}</div>', unsafe_allow_html=True)
+        for p_name in section_pages:
+            pass  # Section labels rendered above the radio
+        break  # Only show first section label before the radio
+
     page = st.radio(
         "nav",
-        ["Dashboard", "Run Cycle", "Reminders", "Calendar",
-         "IT PM Track Record", "Cycle Comparison",
-         "Templates", "Cycle History", "Communications", "Data Quality",
-         "Settings", "Simulation", "Log Viewer", "Archive Browser", "Database Explorer"],
-        index=0,
+        ALL_PAGES,
+        index=_default_idx,
         label_visibility="collapsed",
+        format_func=lambda x: f"{'  ' if x in NAV_SECTIONS.get('Admin', []) or x in NAV_SECTIONS.get('Configuration', []) else ''}{x}",
     )
+
+    # Show section dividers inline
+    st.markdown("")  # spacer
 
 
 # ===========================================================================
@@ -233,10 +280,40 @@ with st.sidebar:
 # ===========================================================================
 if page == "Dashboard":
     st.title("Dashboard")
-    st.markdown("Key metrics tracking IT PM certification progress, compliance, and reminder effectiveness.")
 
     config = get_config()
     conn = get_db_connection(config)
+
+    # --- Smart landing: onboarding if no data ---
+    if conn is None:
+        st.markdown("### Welcome to the Training Reminder System")
+        st.markdown(
+            "This system helps you track IT PM training certification and "
+            "generate progressive reminder emails. Get started:"
+        )
+        st.markdown("")
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.markdown("**Step 1: Try with demo data**")
+            st.markdown(
+                "Go to **Simulation** in the sidebar to generate "
+                "synthetic test data and run a multi-cycle demo."
+            )
+        with col_b:
+            st.markdown("**Step 2: Or upload real data**")
+            st.markdown(
+                "Go to **Run Cycle** to upload your ePPM and Fuse "
+                "Excel exports and process your first cycle."
+            )
+        with col_c:
+            st.markdown("**Step 3: Explore results**")
+            st.markdown(
+                "After running a cycle, come back here to see "
+                "certification trends, compliance rates, and more."
+            )
+        st.markdown("---")
+        st.info("No cycle data yet. Run a cycle or simulation to populate the dashboard.")
+        st.stop()
 
     if conn is None:
         empty_state("database", "No database found. Run a processing cycle first.")
@@ -531,15 +608,23 @@ if page == "Dashboard":
 # ===========================================================================
 elif page == "Run Cycle":
     st.title("Run Processing Cycle")
-    st.markdown(
-        "Upload input Excel files and run a processing cycle to generate training reminders."
-    )
+    st.caption("Upload your weekly ePPM and Fuse exports, then run a cycle to generate reminders.")
 
     config = get_config()
     input_folder = os.path.join(PROJECT_ROOT, config["paths"]["input_folder"])
 
+    # --- Step indicators ---
+    _has_eppm = "eppm" in st.session_state and st.session_state["eppm"] is not None
+    _has_fuse = "fuse" in st.session_state and st.session_state["fuse"] is not None
+    step1_status = "done" if (_has_eppm and _has_fuse) else ("partial" if (_has_eppm or _has_fuse) else "todo")
+    step_cols = st.columns(3)
+    step_cols[0].markdown(f"{'**1. Upload Files**' if step1_status != 'done' else '~~1. Upload Files~~'}")
+    step_cols[1].markdown(f"{'**2. Preview**' if step1_status == 'done' else '2. Preview'}")
+    step_cols[2].markdown(f"3. Run Cycle")
+    st.markdown("")
+
     # --- File uploads ---
-    st.header("1. Upload Input Files")
+    st.subheader("Upload Input Files")
 
     col1, col2 = st.columns(2)
 
@@ -571,7 +656,7 @@ elif page == "Run Cycle":
 
     # --- Preview uploaded files ---
     if eppm_file or fuse_file:
-        st.header("2. Preview Uploaded Data")
+        st.subheader("Preview Uploaded Data")
         if eppm_file:
             with st.expander("ePPM Data Preview", expanded=False):
                 try:
@@ -591,7 +676,7 @@ elif page == "Run Cycle":
                     st.error(f"Could not read Fuse file: {e}")
 
     # --- Run cycle ---
-    st.header("3. Run Cycle")
+    st.subheader("Run Cycle")
 
     can_run = eppm_file is not None and fuse_file is not None
     if not can_run:
@@ -633,6 +718,10 @@ elif page == "Run Cycle":
 
         if summary:
             st.success("Cycle completed successfully!")
+            st.markdown(
+                "**Next steps:** Go to **Reminders** to browse the generated emails, "
+                "or check the **Dashboard** for updated metrics."
+            )
 
             # Display summary
             st.header("Cycle Results")
@@ -2469,10 +2558,20 @@ elif page == "Simulation":
             st.rerun()
 
     with col_clear:
-        if existing_cycles and st.button("Clear Simulation Data"):
-            shutil.rmtree(sim_dir, ignore_errors=True)
-            st.success("Simulation data cleared.")
-            st.rerun()
+        if existing_cycles:
+            if st.button("Clear Simulation Data"):
+                st.session_state["confirm_clear_sim"] = True
+            if st.session_state.get("confirm_clear_sim"):
+                st.warning("This will delete all generated test data.")
+                c1, c2 = st.columns(2)
+                if c1.button("Yes, delete", type="primary", key="confirm_clear_yes"):
+                    shutil.rmtree(sim_dir, ignore_errors=True)
+                    st.session_state["confirm_clear_sim"] = False
+                    st.success("Simulation data cleared.")
+                    st.rerun()
+                if c2.button("Cancel", key="confirm_clear_no"):
+                    st.session_state["confirm_clear_sim"] = False
+                    st.rerun()
 
     # --- Run Simulation ---
     st.header("2. Run Simulation")
@@ -2485,7 +2584,8 @@ elif page == "Simulation":
         )
         st.warning("This will **reset the database** and all existing cycle data.")
 
-        if st.button("Run Full Simulation", type="primary"):
+        run_sim = st.button("Run Full Simulation", type="primary")
+        if run_sim:
             with st.spinner("Running simulation..."):
                 original_dir = os.getcwd()
                 os.chdir(PROJECT_ROOT)
@@ -2496,6 +2596,11 @@ elif page == "Simulation":
                     )
                     if result.returncode == 0:
                         st.success("Simulation completed!")
+                        st.markdown(
+                            "**Next:** Go to **Dashboard** to see metrics, "
+                            "**Reminders** to browse generated emails, or "
+                            "**IT PM Track Record** to follow individual PMs."
+                        )
                         st.code(result.stdout[-3000:] if len(result.stdout) > 3000 else result.stdout)
                     else:
                         st.error(f"Simulation failed:\n{result.stderr[-2000:]}")

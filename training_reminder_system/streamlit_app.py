@@ -179,7 +179,7 @@ if page == "Dashboard":
 
                     # Stacked view
                     with st.expander("Detailed Breakdown per Cycle"):
-                        st.dataframe(cert_df, use_container_width=True, hide_index=True)
+                        st.dataframe(cert_df, width="stretch", hide_index=True)
 
                 # ==============================================================
                 # METRIC 2: % Projects Not Compliant Over Time
@@ -250,7 +250,7 @@ if page == "Dashboard":
                     st.line_chart(chart_comp, height=300)
 
                     with st.expander("Detailed Breakdown per Cycle"):
-                        st.dataframe(comp_df, use_container_width=True, hide_index=True)
+                        st.dataframe(comp_df, width="stretch", hide_index=True)
                 else:
                     st.info("No compliance data available yet.")
 
@@ -316,7 +316,7 @@ if page == "Dashboard":
                     with st.expander(f"Per-PM Detail ({len(rtc_df)} certified PMs)"):
                         st.dataframe(
                             rtc_df.sort_values("Reminders Before Certification"),
-                            use_container_width=True, hide_index=True,
+                            width="stretch", hide_index=True,
                         )
                 else:
                     st.info("No PMs have been certified yet (no congratulations sent). Metrics will appear after PMs complete training.")
@@ -396,7 +396,7 @@ if page == "Dashboard":
                     with st.expander(f"Per-PM Detail ({len(ttc_df)} certified PMs)"):
                         st.dataframe(
                             ttc_df.sort_values("Days to Certification"),
-                            use_container_width=True, hide_index=True,
+                            width="stretch", hide_index=True,
                         )
                 else:
                     st.info("No time-to-certification data available yet. Metrics will appear after PMs complete training following reminders.")
@@ -456,7 +456,7 @@ elif page == "Run Cycle":
                 try:
                     df = pd.read_excel(io.BytesIO(eppm_file.getvalue()), engine="openpyxl")
                     st.write(f"**{len(df)} rows, {len(df.columns)} columns**")
-                    st.dataframe(df.head(20), use_container_width=True)
+                    st.dataframe(df.head(20), width="stretch")
                 except Exception as e:
                     st.error(f"Could not read ePPM file: {e}")
 
@@ -465,7 +465,7 @@ elif page == "Run Cycle":
                 try:
                     df = pd.read_excel(io.BytesIO(fuse_file.getvalue()), engine="openpyxl")
                     st.write(f"**{len(df)} rows, {len(df.columns)} columns**")
-                    st.dataframe(df.head(20), use_container_width=True)
+                    st.dataframe(df.head(20), width="stretch")
                 except Exception as e:
                     st.error(f"Could not read Fuse file: {e}")
 
@@ -538,7 +538,7 @@ elif page == "Run Cycle":
                 summary_df = pd.DataFrame(
                     [{"Metric": k.replace("_", " ").title(), "Value": v} for k, v in summary.items()]
                 )
-                st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                st.dataframe(summary_df, width="stretch", hide_index=True)
 
             # Find latest output folder and offer download
             output_base = os.path.join(PROJECT_ROOT, config["paths"]["output_folder"])
@@ -575,7 +575,7 @@ elif page == "Run Cycle":
                                             st.markdown(content)
                                         elif file.endswith(".csv"):
                                             csv_df = pd.read_csv(file_path)
-                                            st.dataframe(csv_df, use_container_width=True)
+                                            st.dataframe(csv_df, width="stretch")
                                         else:
                                             st.code(content, language=None)
                                     except Exception as e:
@@ -662,7 +662,7 @@ elif page == "Reminders":
                                         with st.expander(f"CSV: {csv_file}"):
                                             try:
                                                 csv_df = pd.read_csv(csv_path)
-                                                st.dataframe(csv_df, use_container_width=True, hide_index=True)
+                                                st.dataframe(csv_df, width="stretch", hide_index=True)
                                             except Exception as e:
                                                 st.error(f"Could not read CSV: {e}")
 
@@ -709,7 +709,7 @@ elif page == "Reminders":
                                 with st.expander(item):
                                     try:
                                         csv_df = pd.read_csv(item_path)
-                                        st.dataframe(csv_df, use_container_width=True, hide_index=True)
+                                        st.dataframe(csv_df, width="stretch", hide_index=True)
                                     except Exception as e:
                                         st.error(f"Could not read CSV: {e}")
 
@@ -730,7 +730,7 @@ elif page == "Reminders":
                                 try:
                                     csv_df = pd.read_csv(csv_path)
                                     st.write(f"**{len(csv_df)} rows**")
-                                    st.dataframe(csv_df, use_container_width=True, hide_index=True)
+                                    st.dataframe(csv_df, width="stretch", hide_index=True)
                                 except Exception as e:
                                     st.error(f"Could not read CSV: {e}")
 
@@ -1000,7 +1000,7 @@ elif page == "Calendar":
                     "Action": "—",
                     "Config Key": "—",
                 })
-        st.dataframe(pd.DataFrame(schedule_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(schedule_rows), width="stretch", hide_index=True)
 
     # ------------------------------------------------------------------
     # Section 2: Communication History Timeline
@@ -1059,7 +1059,7 @@ elif page == "Calendar":
                     pivot_df = pivot_df.rename(columns={"cycle_id": "Cycle", "cycle_timestamp": "Date"})
 
                     st.subheader("Communications per Cycle")
-                    st.dataframe(pivot_df, use_container_width=True, hide_index=True)
+                    st.dataframe(pivot_df, width="stretch", hide_index=True)
 
                     # Bar chart
                     st.subheader("Communication Volume Over Time")
@@ -1341,7 +1341,7 @@ elif page == "IT PM Track Record":
                         st.markdown("")  # spacer
 
                         with st.expander("Full Training Data Table"):
-                            st.dataframe(training_hist, use_container_width=True, hide_index=True)
+                            st.dataframe(training_hist, width="stretch", hide_index=True)
 
                 # --- Project Assignments ---
                 with tab_assign:
@@ -1364,7 +1364,7 @@ elif page == "IT PM Track Record":
                         st.write(f"**{len(unique_projects)} unique projects** across {assignments['cycle_id'].nunique()} cycles")
 
                         st.subheader("All Projects (All Time)")
-                        st.dataframe(unique_projects.sort_values("project_name"), use_container_width=True, hide_index=True)
+                        st.dataframe(unique_projects.sort_values("project_name"), width="stretch", hide_index=True)
 
                         # Project assignment timeline — which projects in which cycles
                         st.subheader("Assignment Timeline")
@@ -1381,7 +1381,7 @@ elif page == "IT PM Track Record":
                             f"Cycle {c}" if isinstance(c, (int, float)) and str(c).replace('.', '').isdigit() else c
                             for c in pivot.columns
                         ]
-                        st.dataframe(pivot, use_container_width=True, hide_index=True)
+                        st.dataframe(pivot, width="stretch", hide_index=True)
 
                 # --- Communications ---
                 with tab_comms:
@@ -1494,7 +1494,7 @@ elif page == "IT PM Track Record":
                                 project_issues = issues_df.groupby(
                                     ["project_id", "project_name"] if "project_name" in issues_df.columns else ["project_id"]
                                 ).size().reset_index(name="Issue Count").sort_values("Issue Count", ascending=False)
-                                st.dataframe(project_issues, use_container_width=True, hide_index=True)
+                                st.dataframe(project_issues, width="stretch", hide_index=True)
 
                             # Summary by gate
                             if "gate" in issues_df.columns:
@@ -1511,7 +1511,7 @@ elif page == "IT PM Track Record":
                             st.bar_chart(cycle_issue_counts.set_index("Label")["Issues"])
 
                             with st.expander("All Compliance Issues"):
-                                st.dataframe(issues_df, use_container_width=True, hide_index=True)
+                                st.dataframe(issues_df, width="stretch", hide_index=True)
 
                 # --- Full Timeline ---
                 with tab_timeline:
@@ -1688,14 +1688,14 @@ elif page == "Cycle Comparison":
                             with st.expander(f"Newly Certified ({len(newly_certified)})"):
                                 st.dataframe(
                                     newly_certified[["full_name", "email"]],
-                                    use_container_width=True, hide_index=True,
+                                    width="stretch", hide_index=True,
                                 )
 
                         if not new_pms.empty:
                             with st.expander(f"New PMs in Cycle {cycle_b} ({len(new_pms)})"):
                                 display_cols = ["full_name", "email"]
                                 avail = [c for c in display_cols if c in new_pms.columns]
-                                st.dataframe(new_pms[avail], use_container_width=True, hide_index=True)
+                                st.dataframe(new_pms[avail], width="stretch", hide_index=True)
 
                         if not status_changed.empty:
                             with st.expander(f"Training Status Changed ({len(status_changed)})"):
@@ -1703,7 +1703,7 @@ elif page == "Cycle Comparison":
                                              f"overall_training_status_c{cycle_a}",
                                              f"overall_training_status_c{cycle_b}"]
                                 avail = [c for c in show_cols if c in status_changed.columns]
-                                st.dataframe(status_changed[avail], use_container_width=True, hide_index=True)
+                                st.dataframe(status_changed[avail], width="stretch", hide_index=True)
 
                     # --- Communication comparison ---
                     st.header("Communication Changes")
@@ -1769,7 +1769,7 @@ elif page == "Cycle Comparison":
                             )
                             st.dataframe(
                                 progressed[["full_name", "email", f"stage_c{cycle_a}", f"stage_c{cycle_b}"]],
-                                use_container_width=True, hide_index=True,
+                                width="stretch", hide_index=True,
                             )
 
                     # --- Assignment comparison ---
@@ -1798,7 +1798,7 @@ elif page == "Cycle Comparison":
                                 f"SELECT DISTINCT project_id, project_name FROM assignment_snapshots WHERE cycle_id = ? AND project_id IN ({','.join('?' * len(new_projects))})",
                                 conn, params=[int(cycle_b)] + list(new_projects),
                             )
-                            st.dataframe(new_p_df, use_container_width=True, hide_index=True)
+                            st.dataframe(new_p_df, width="stretch", hide_index=True)
 
                     if removed_projects:
                         with st.expander(f"Removed Projects from Cycle {cycle_a} ({len(removed_projects)})"):
@@ -1806,7 +1806,7 @@ elif page == "Cycle Comparison":
                                 f"SELECT DISTINCT project_id, project_name FROM assignment_snapshots WHERE cycle_id = ? AND project_id IN ({','.join('?' * len(removed_projects))})",
                                 conn, params=[int(cycle_a)] + list(removed_projects),
                             )
-                            st.dataframe(rem_p_df, use_container_width=True, hide_index=True)
+                            st.dataframe(rem_p_df, width="stretch", hide_index=True)
 
         finally:
             conn.close()
@@ -1832,7 +1832,7 @@ elif page == "Cycle History":
             if cycles_df.empty:
                 st.info("No cycles recorded yet.")
             else:
-                st.dataframe(cycles_df, use_container_width=True, hide_index=True)
+                st.dataframe(cycles_df, width="stretch", hide_index=True)
 
                 # Cycle detail
                 selected_cycle = st.selectbox(
@@ -1863,7 +1863,7 @@ elif page == "Cycle History":
                             st.info("No assignment data for this cycle.")
                         else:
                             st.write(f"**{len(assignments_df)} assignments**")
-                            st.dataframe(assignments_df, use_container_width=True, hide_index=True)
+                            st.dataframe(assignments_df, width="stretch", hide_index=True)
 
                     with tab2:
                         training_df = pd.read_sql_query(
@@ -1891,7 +1891,7 @@ elif page == "Cycle History":
                             col2.metric("Incomplete", incomplete)
                             col3.metric("Total", len(training_df))
 
-                            st.dataframe(training_df, use_container_width=True, hide_index=True)
+                            st.dataframe(training_df, width="stretch", hide_index=True)
 
                     with tab3:
                         comms_df = pd.read_sql_query(
@@ -1921,9 +1921,9 @@ elif page == "Cycle History":
                                 "Stage": [stage_labels.get(s, f"Stage {s}") for s in stage_counts.index],
                                 "Count": stage_counts.values,
                             })
-                            st.dataframe(stage_display, use_container_width=True, hide_index=True)
+                            st.dataframe(stage_display, width="stretch", hide_index=True)
 
-                            st.dataframe(comms_df, use_container_width=True, hide_index=True)
+                            st.dataframe(comms_df, width="stretch", hide_index=True)
 
                             # Email preview
                             st.subheader("Email Preview")
@@ -1966,7 +1966,7 @@ elif page == "Cycle History":
                             st.info("No data quality issues for this cycle.")
                         else:
                             st.write(f"**{len(dq_df)} issues**")
-                            st.dataframe(dq_df, use_container_width=True, hide_index=True)
+                            st.dataframe(dq_df, width="stretch", hide_index=True)
         finally:
             conn.close()
 
@@ -2025,7 +2025,7 @@ elif page == "Communications":
                     ]
 
                 st.write(f"**{len(filtered)} communications** (of {len(comms_df)} total)")
-                st.dataframe(filtered, use_container_width=True, hide_index=True)
+                st.dataframe(filtered, width="stretch", hide_index=True)
 
                 # Per-PM communication timeline
                 st.subheader("PM Communication Timeline")
@@ -2075,7 +2075,7 @@ elif page == "Data Quality":
                 with col1:
                     st.dataframe(
                         type_counts.reset_index().set_axis(["Issue Type", "Count"], axis=1),
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True,
                     )
 
@@ -2085,7 +2085,7 @@ elif page == "Data Quality":
 
                 filtered = dq_df if selected_type == "All" else dq_df[dq_df["issue_type"] == selected_type]
                 st.write(f"**{len(filtered)} issues**")
-                st.dataframe(filtered, use_container_width=True, hide_index=True)
+                st.dataframe(filtered, width="stretch", hide_index=True)
 
                 # -------------------------------------------------------
                 # Unmatched PM Resolution
@@ -2189,7 +2189,7 @@ elif page == "Database Explorer":
                     conn,
                     params=(page_size, offset),
                 )
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                st.dataframe(df, width="stretch", hide_index=True)
 
                 # Custom query
                 st.subheader("Custom SQL Query")
@@ -2202,7 +2202,7 @@ elif page == "Database Explorer":
                     try:
                         result_df = pd.read_sql_query(query, conn)
                         st.write(f"**{len(result_df)} rows returned**")
-                        st.dataframe(result_df, use_container_width=True, hide_index=True)
+                        st.dataframe(result_df, width="stretch", hide_index=True)
                     except Exception as e:
                         st.error(f"Query error: {e}")
         finally:
@@ -2439,7 +2439,7 @@ elif page == "Simulation":
                         summary_df = pd.DataFrame(
                             [{"Metric": k.replace("_", " ").title(), "Value": v} for k, v in summary.items()]
                         )
-                        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                        st.dataframe(summary_df, width="stretch", hide_index=True)
                     else:
                         st.warning("Cycle was reverted due to input validation error.")
                 except Exception as e:
@@ -2586,7 +2586,7 @@ elif page == "Archive Browser":
                             with st.expander(f"Cycle {cycle_id} — {cycle_ts} ({len(cycle_files)} files)"):
                                 st.dataframe(
                                     cycle_files[["file_type", "original_filename", "archived_filename", "checksum", "processed_at"]],
-                                    use_container_width=True, hide_index=True,
+                                    width="stretch", hide_index=True,
                                 )
                 finally:
                     conn.close()

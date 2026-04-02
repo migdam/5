@@ -16,13 +16,20 @@ The system:
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
+# Option A: Use the run script (recommended — handles venv automatically)
+./run.sh setup        # Create venv and install dependencies
+./run.sh ui           # Launch the Streamlit web UI
+./run.sh cli          # Run a single processing cycle
+./run.sh simulate     # Generate test data and run simulation
+./run.sh test         # Run the test suite
+
+# Option B: Manual setup
 pip install -r requirements.txt
 
-# 2. Generate synthetic test data (3 cycles)
+# Generate synthetic test data (3 cycles)
 python generate_test_data.py
 
-# 3. Run the full 3-cycle simulation
+# Run the full 3-cycle simulation
 python run_simulation.py
 
 # Or run a single cycle manually
@@ -196,6 +203,7 @@ The UI provides fifteen pages:
 
 ```
 training_reminder_system/
+├── run.sh                   # Setup and run script (venv, cli, ui, simulate, test)
 ├── streamlit_app.py         # Streamlit web UI
 ├── main.py                  # Entry point for single cycle
 ├── config.yaml              # All configuration

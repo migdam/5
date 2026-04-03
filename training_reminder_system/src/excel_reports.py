@@ -107,7 +107,7 @@ def _auto_width(ws, min_width=10, max_width=40):
 def write_cycle_dashboard(output_dir, reminders, missing_itpm_reminders=None,
                           escalation_reminders=None, role_changed_reminders=None,
                           nice_to_have_pms=None, congratulations=None,
-                          summary_data=None, cycle_id=None):
+                          summary_data=None, cycle_id=None, timestamp=None):
     """Write a color-coded Excel dashboard for a single cycle.
 
     Produces: cycle_dashboard.xlsx with multiple sheets.
@@ -123,7 +123,9 @@ def write_cycle_dashboard(output_dir, reminders, missing_itpm_reminders=None,
     if congratulations is None:
         congratulations = []
 
-    filepath = os.path.join(output_dir, "cycle_dashboard.xlsx")
+    ts = f"_{timestamp}" if timestamp else ""
+    filename = f"cycle_dashboard{ts}_cycle{cycle_id}.xlsx" if cycle_id else f"cycle_dashboard{ts}.xlsx"
+    filepath = os.path.join(output_dir, filename)
     wb = openpyxl.Workbook()
 
     # --- Sheet 1: Summary ---
@@ -257,7 +259,7 @@ def write_cycle_dashboard(output_dir, reminders, missing_itpm_reminders=None,
 # 2. Cross-Cycle Tracker Excel (from database)
 # ---------------------------------------------------------------------------
 
-def write_cross_cycle_tracker(output_dir, db_path):
+def write_cross_cycle_tracker(output_dir, db_path, timestamp=None, cycle_id=None):
     """Write a cross-cycle tracker Excel showing PM progression over time.
 
     Produces: tracker.xlsx with:
@@ -321,7 +323,9 @@ def write_cross_cycle_tracker(output_dir, db_path):
     conn.close()
 
     # --- Write Excel ---
-    filepath = os.path.join(output_dir, "tracker.xlsx")
+    ts = f"_{timestamp}" if timestamp else ""
+    cy = f"_cycle{cycle_id}" if cycle_id else ""
+    filepath = os.path.join(output_dir, f"tracker{ts}{cy}.xlsx")
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "PM Tracker"
@@ -437,7 +441,7 @@ TYPE_FILLS = {
 def write_send_schedule(output_dir, reminders, config, cycle_id,
                         missing_itpm_reminders=None, escalation_reminders=None,
                         role_changed_reminders=None, nice_to_have_pms=None,
-                        congratulations=None):
+                        congratulations=None, timestamp=None):
     """Write a send schedule Excel that someone can use to send all emails.
 
     Produces: send_schedule.xlsx with:
@@ -574,7 +578,8 @@ def write_send_schedule(output_dir, reminders, config, cycle_id,
         logger.info("No emails to schedule — skipping send_schedule.xlsx")
         return None
 
-    filepath = os.path.join(output_dir, "send_schedule.xlsx")
+    ts = f"_{timestamp}" if timestamp else ""
+    filepath = os.path.join(output_dir, f"send_schedule{ts}_cycle{cycle_id}.xlsx")
     wb = openpyxl.Workbook()
 
     # --- Instructions sheet ---

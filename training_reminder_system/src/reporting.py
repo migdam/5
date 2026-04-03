@@ -127,6 +127,7 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
         })
 
     # 8. Color-coded cycle dashboard Excel
+    excel_timestamp = timestamp  # e.g., "2026-04-03_0505"
     write_cycle_dashboard(
         output_dir, reminders,
         missing_itpm_reminders=missing_itpm_reminders,
@@ -136,12 +137,13 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
         congratulations=congratulations,
         summary_data=summary_data,
         cycle_id=cycle_id,
+        timestamp=excel_timestamp,
     )
 
     # 9. Cross-cycle tracker Excel (reads full DB history)
     db_path = config["paths"].get("database", "")
     if db_path:
-        write_cross_cycle_tracker(output_dir, db_path)
+        write_cross_cycle_tracker(output_dir, db_path, timestamp=excel_timestamp, cycle_id=cycle_id)
 
     # 10. Send schedule Excel — handoff-ready email list with dates and bodies
     write_send_schedule(
@@ -151,7 +153,21 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
         role_changed_reminders=role_changed_reminders,
         nice_to_have_pms=nice_to_have_pms,
         congratulations=congratulations,
+        timestamp=excel_timestamp,
     )
+
+    # 11. Archive Excel reports with timestamp
+    archive_base = config["paths"].get("archive_folder", "")
+    if archive_base:
+        reports_archive = os.path.join(archive_base, "reports")
+        os.makedirs(reports_archive, exist_ok=True)
+        import shutil
+        for xlsx_name in os.listdir(output_dir):
+            if xlsx_name.endswith(".xlsx"):
+                src = os.path.join(output_dir, xlsx_name)
+                dst = os.path.join(reports_archive, xlsx_name)
+                shutil.copy2(src, dst)
+        logger.info("Excel reports archived to %s", reports_archive)
 
     logger.info("Output files generated in %s", output_dir)
     return output_dir

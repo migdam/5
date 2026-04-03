@@ -17,20 +17,33 @@ The system:
 ## Quick Start
 
 ```bash
-# Option A: Use the run script (recommended — handles venv automatically)
+# Linux / macOS
 ./run.sh setup        # Create venv and install dependencies
 ./run.sh simulate     # Generate test data and run full simulation
 ./run.sh ui           # Launch the Streamlit web UI
 ./run.sh cli          # Run a single processing cycle
 ./run.sh test         # Run the test suite (139 tests)
 
-# Option B: Manual setup
+# Windows (PowerShell — recommended)
+.\run.ps1 setup
+.\run.ps1 simulate
+.\run.ps1 ui
+
+# Windows (Command Prompt)
+run.bat setup
+run.bat simulate
+run.bat ui
+
+# Manual setup (any platform)
 pip install -r requirements.txt
 python generate_test_data.py    # Generate synthetic test data
 python run_simulation.py        # Run multi-cycle simulation
 python main.py                  # Run a single cycle
 streamlit run streamlit_app.py  # Launch the web UI
 ```
+
+> **Windows note:** If PowerShell says "running scripts is disabled", run once as Administrator:
+> `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
 
 ## Input Files
 
@@ -266,7 +279,9 @@ python run_simulation.py --no-stop
 
 ```
 training_reminder_system/
-├── run.sh                   # Setup and run script (venv, cli, ui, simulate, test)
+├── run.sh                   # Setup and run script — Linux/macOS
+├── run.ps1                  # Setup and run script — Windows PowerShell
+├── run.bat                  # Setup and run script — Windows Command Prompt
 ├── streamlit_app.py         # Streamlit web UI (15 pages)
 ├── main.py                  # Entry point for single cycle
 ├── config.yaml              # All configuration

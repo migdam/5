@@ -412,3 +412,318 @@ def write_cross_cycle_tracker(output_dir, db_path):
     wb.save(filepath)
     logger.info("Cross-cycle tracker Excel written: %s", filepath)
     return filepath
+
+
+# ---------------------------------------------------------------------------
+# 3. Send Schedule Excel — handoff-ready email list
+# ---------------------------------------------------------------------------
+
+FILL_SENT = PatternFill(start_color="D5F5E3", end_color="D5F5E3", fill_type="solid")
+FILL_PENDING = PatternFill(start_color="FDFEFE", end_color="FDFEFE", fill_type="solid")
+
+TYPE_FILLS = {
+    "Training Reminder": FILL_GREEN,
+    "Training Reminder (Stage 1)": FILL_GREEN,
+    "Training Reminder (Stage 2)": FILL_YELLOW,
+    "Training Reminder (Stage 3)": FILL_ORANGE,
+    "Missing IT PM": FILL_ORANGE,
+    "Escalation to Owner": FILL_RED,
+    "Role Change Alert": FILL_GRAY,
+    "Congratulations": FILL_BLUE,
+    "Nice-to-Have": FILL_BLUE,
+}
+
+
+def write_send_schedule(output_dir, reminders, config, cycle_id,
+                        missing_itpm_reminders=None, escalation_reminders=None,
+                        role_changed_reminders=None, nice_to_have_pms=None,
+                        congratulations=None):
+    """Write a send schedule Excel that someone can use to send all emails.
+
+    Produces: send_schedule.xlsx with:
+    - "All Emails" sheet: every email sorted by send date, with To, Subject,
+      Body, Type, Send Date, and a Sent? checkbox column
+    - Per-day sheets (Tuesday, Wednesday, etc.) with only that day's emails
+    - Instructions sheet explaining the process
+
+    This file is designed to be shared with a colleague who doesn't have
+    access to the system — they just open the file and send the emails.
+    """
+    from datetime import datetime, timedelta
+
+    if missing_itpm_reminders is None:
+        missing_itpm_reminders = []
+    if escalation_reminders is None:
+        escalation_reminders = []
+    if role_changed_reminders is None:
+        role_changed_reminders = []
+    if nice_to_have_pms is None:
+        nice_to_have_pms = []
+    if congratulations is None:
+        congratulations = []
+
+    # Calculate send dates from comms schedule
+    today = datetime.now()
+    days_to_monday = (7 - today.weekday()) % 7
+    if days_to_monday == 0 and today.hour > 12:
+        days_to_monday = 7
+    monday = today + timedelta(days=days_to_monday)
+    if today.weekday() == 0:
+        monday = today
+
+    day_dates = {
+        "tuesday": monday + timedelta(days=1),
+        "wednesday": monday + timedelta(days=2),
+        "thursday": monday + timedelta(days=3),
+        "friday": monday + timedelta(days=4),
+    }
+
+    # Map message types to send days (from config)
+    comms_schedule = config.get("comms_schedule", {})
+    type_to_day = {}
+    for day, actions in comms_schedule.items():
+        if day == "monday":
+            continue
+        for action in (actions or []):
+            type_to_day[action] = day
+
+    # Build the complete email list
+    all_emails = []
+
+    # Training reminders -> tuesday
+    for r in reminders:
+        stage = r.get("stage", 1)
+        if stage <= 1:
+            etype = "Training Reminder (Stage 1)"
+        elif stage == 2:
+            etype = "Training Reminder (Stage 2)"
+        else:
+            etype = f"Training Reminder (Stage {stage})"
+        send_day = type_to_day.get("training_reminders", "tuesday")
+        all_emails.append({
+            "send_date": day_dates.get(send_day, day_dates["tuesday"]).strftime("%Y-%m-%d (%A)"),
+            "send_day": send_day,
+            "type": etype,
+            "to": r["recipient_email"],
+            "name": r["name"],
+            "subject": r["subject"],
+            "body": r["body"],
+            "stage": stage,
+        })
+
+    # Congratulations -> tuesday
+    for r in congratulations:
+        send_day = type_to_day.get("congratulations", "tuesday")
+        all_emails.append({
+            "send_date": day_dates.get(send_day, day_dates["tuesday"]).strftime("%Y-%m-%d (%A)"),
+            "send_day": send_day,
+            "type": "Congratulations",
+            "to": r["recipient_email"],
+            "name": r["name"],
+            "subject": r["subject"],
+            "body": r["body"],
+            "stage": 99,
+        })
+
+    # Missing IT PM -> wednesday
+    for r in missing_itpm_reminders:
+        send_day = type_to_day.get("missing_itpm", "wednesday")
+        all_emails.append({
+            "send_date": day_dates.get(send_day, day_dates["wednesday"]).strftime("%Y-%m-%d (%A)"),
+            "send_day": send_day,
+            "type": "Missing IT PM",
+            "to": r["recipient_email"],
+            "name": r["name"],
+            "subject": r["subject"],
+            "body": r["body"],
+            "stage": 0,
+        })
+
+    # Role changes -> wednesday
+    for r in role_changed_reminders:
+        send_day = type_to_day.get("role_changed_itpm", "wednesday")
+        all_emails.append({
+            "send_date": day_dates.get(send_day, day_dates["wednesday"]).strftime("%Y-%m-%d (%A)"),
+            "send_day": send_day,
+            "type": "Role Change Alert",
+            "to": r["recipient_email"],
+            "name": r["name"],
+            "subject": r["subject"],
+            "body": r["body"],
+            "stage": -2,
+        })
+
+    # Escalations -> thursday
+    for r in escalation_reminders:
+        send_day = type_to_day.get("escalations", "thursday")
+        all_emails.append({
+            "send_date": day_dates.get(send_day, day_dates["thursday"]).strftime("%Y-%m-%d (%A)"),
+            "send_day": send_day,
+            "type": "Escalation to Owner",
+            "to": r["recipient_email"],
+            "name": r["name"],
+            "subject": r["subject"],
+            "body": r["body"],
+            "stage": -1,
+        })
+
+    # Sort by send date, then type, then name
+    all_emails.sort(key=lambda x: (x["send_date"], x["type"], x["name"]))
+
+    if not all_emails:
+        logger.info("No emails to schedule — skipping send_schedule.xlsx")
+        return None
+
+    filepath = os.path.join(output_dir, "send_schedule.xlsx")
+    wb = openpyxl.Workbook()
+
+    # --- Instructions sheet ---
+    ws_inst = wb.active
+    ws_inst.title = "Instructions"
+    instructions = [
+        ["Send Schedule — Training Reminder System"],
+        [""],
+        [f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"],
+        [f"Cycle: {cycle_id}"],
+        [f"Total emails to send: {len(all_emails)}"],
+        [""],
+        ["HOW TO USE THIS FILE:"],
+        [""],
+        ["1. Open the sheet for today's day (e.g., 'Tuesday')"],
+        ["2. For each row, create a new email in Outlook:"],
+        ["   - Copy the 'To' column into the To: field"],
+        ["   - Copy the 'Subject' column into the Subject: field"],
+        ["   - Copy the 'Email Body' column into the email body"],
+        ["3. Review the email, then click Send"],
+        ["4. Mark the 'Sent?' column as 'Yes' when done"],
+        [""],
+        ["SCHEDULE:"],
+        [f"  Tuesday  ({day_dates['tuesday'].strftime('%Y-%m-%d')}): Training reminders + Congratulations"],
+        [f"  Wednesday ({day_dates['wednesday'].strftime('%Y-%m-%d')}): IT PM reminders + Role change alerts"],
+        [f"  Thursday ({day_dates['thursday'].strftime('%Y-%m-%d')}): Escalations to Project Owners"],
+        [f"  Friday   ({day_dates['friday'].strftime('%Y-%m-%d')}): Group emails + Nice-to-have"],
+        [""],
+        ["COLOR LEGEND:"],
+        ["  Green  = Stage 1 (friendly awareness)"],
+        ["  Yellow = Stage 2 (encouraging)"],
+        ["  Orange = Stage 3+ (persuasive) / Missing IT PM"],
+        ["  Red    = Escalation to Project Owner"],
+        ["  Blue   = Congratulations"],
+        ["  Gray   = Role change alert"],
+    ]
+    for row in instructions:
+        ws_inst.append(row)
+    ws_inst.cell(row=1, column=1).font = Font(bold=True, size=14)
+    ws_inst.cell(row=7, column=1).font = FONT_BOLD
+    ws_inst.column_dimensions["A"].width = 80
+
+    # --- All Emails sheet ---
+    ws_all = wb.create_sheet("All Emails")
+    headers = ["#", "Send Date", "Type", "To", "Name", "Subject", "Email Body", "Sent?"]
+    ws_all.append(headers)
+    _style_header(ws_all, len(headers))
+
+    for idx, email in enumerate(all_emails, 1):
+        row_num = ws_all.max_row + 1
+        ws_all.append([
+            idx,
+            email["send_date"],
+            email["type"],
+            email["to"],
+            email["name"],
+            email["subject"],
+            email["body"],
+            "",  # Sent? column
+        ])
+
+        # Color by type
+        fill = TYPE_FILLS.get(email["type"], FILL_GRAY)
+        for col in range(1, len(headers) + 1):
+            cell = ws_all.cell(row=row_num, column=col)
+            cell.border = THIN_BORDER
+            cell.font = FONT_NORMAL
+            if col == len(headers):  # Sent? column
+                cell.alignment = ALIGN_CENTER
+            elif col == 7:  # Body column — wrap text
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+            # Apply color to type and # columns
+            if col <= 3:
+                cell.fill = fill
+
+    # Set column widths
+    ws_all.column_dimensions["A"].width = 5   # #
+    ws_all.column_dimensions["B"].width = 22  # Send Date
+    ws_all.column_dimensions["C"].width = 28  # Type
+    ws_all.column_dimensions["D"].width = 35  # To
+    ws_all.column_dimensions["E"].width = 25  # Name
+    ws_all.column_dimensions["F"].width = 50  # Subject
+    ws_all.column_dimensions["G"].width = 80  # Body
+    ws_all.column_dimensions["H"].width = 8   # Sent?
+    ws_all.freeze_panes = "A2"
+    ws_all.auto_filter.ref = f"A1:H{ws_all.max_row}"
+
+    # --- Per-day sheets ---
+    day_order = ["tuesday", "wednesday", "thursday", "friday"]
+    day_names = {"tuesday": "Tuesday", "wednesday": "Wednesday", "thursday": "Thursday", "friday": "Friday"}
+
+    for day_key in day_order:
+        day_emails = [e for e in all_emails if e["send_day"] == day_key]
+        if not day_emails:
+            continue
+
+        day_name = day_names[day_key]
+        day_date = day_dates[day_key].strftime("%Y-%m-%d")
+        ws_day = wb.create_sheet(f"{day_name} ({day_date})")
+
+        # Day header
+        ws_day.append([f"Emails to send on {day_name}, {day_date}"])
+        ws_day.cell(row=1, column=1).font = Font(bold=True, size=12)
+        ws_day.append([f"Total: {len(day_emails)} emails"])
+        ws_day.append([])
+
+        # Column headers
+        day_headers = ["#", "Type", "To", "Name", "Subject", "Email Body", "Sent?"]
+        ws_day.append(day_headers)
+        header_row = ws_day.max_row
+        for col in range(1, len(day_headers) + 1):
+            cell = ws_day.cell(row=header_row, column=col)
+            cell.fill = FILL_HEADER
+            cell.font = FONT_HEADER
+            cell.alignment = ALIGN_CENTER
+            cell.border = THIN_BORDER
+
+        for idx, email in enumerate(day_emails, 1):
+            row_num = ws_day.max_row + 1
+            ws_day.append([
+                idx,
+                email["type"],
+                email["to"],
+                email["name"],
+                email["subject"],
+                email["body"],
+                "",
+            ])
+
+            fill = TYPE_FILLS.get(email["type"], FILL_GRAY)
+            for col in range(1, len(day_headers) + 1):
+                cell = ws_day.cell(row=row_num, column=col)
+                cell.border = THIN_BORDER
+                cell.font = FONT_NORMAL
+                if col == len(day_headers):
+                    cell.alignment = ALIGN_CENTER
+                elif col == 6:  # Body
+                    cell.alignment = Alignment(wrap_text=True, vertical="top")
+                if col <= 2:
+                    cell.fill = fill
+
+        ws_day.column_dimensions["A"].width = 5
+        ws_day.column_dimensions["B"].width = 28
+        ws_day.column_dimensions["C"].width = 35
+        ws_day.column_dimensions["D"].width = 25
+        ws_day.column_dimensions["E"].width = 50
+        ws_day.column_dimensions["F"].width = 80
+        ws_day.column_dimensions["G"].width = 8
+
+    wb.save(filepath)
+    logger.info("Send schedule Excel written: %s (%d emails)", filepath, len(all_emails))
+    return filepath

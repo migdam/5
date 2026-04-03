@@ -32,7 +32,7 @@ import os
 import logging
 from jinja2 import Template
 from src.utils import get_timestamp
-from src.excel_reports import write_cycle_dashboard, write_cross_cycle_tracker
+from src.excel_reports import write_cycle_dashboard, write_cross_cycle_tracker, write_send_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +142,16 @@ def generate_outputs(reminders, summary_data, config, cycle_id,
     db_path = config["paths"].get("database", "")
     if db_path:
         write_cross_cycle_tracker(output_dir, db_path)
+
+    # 10. Send schedule Excel — handoff-ready email list with dates and bodies
+    write_send_schedule(
+        output_dir, reminders, config, cycle_id,
+        missing_itpm_reminders=missing_itpm_reminders,
+        escalation_reminders=escalation_reminders,
+        role_changed_reminders=role_changed_reminders,
+        nice_to_have_pms=nice_to_have_pms,
+        congratulations=congratulations,
+    )
 
     logger.info("Output files generated in %s", output_dir)
     return output_dir

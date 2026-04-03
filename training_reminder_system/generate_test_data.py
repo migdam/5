@@ -1196,6 +1196,8 @@ def main():
     # Core
     parser.add_argument("--seed", type=int, default=SEED, help="Random seed for reproducibility")
     parser.add_argument("--max-cycles", type=int, default=30, help="Max weekly cycles to generate")
+    parser.add_argument("--label", type=str, default=None,
+                        help="Label for this simulation run (added to folder and filenames, e.g., --label baseline)")
 
     # Population
     parser.add_argument("--num-people", type=int, default=d["num_people"], help="Total synthetic people")
@@ -1286,6 +1288,7 @@ def main():
         # Scale
         "heavy_pm_count": args.heavy_pm_count,
         "heavy_pm_project_count": args.heavy_pm_projects,
+        "label": args.label,
     }
 
     rng = random.Random(args.seed)
@@ -1415,12 +1418,17 @@ def main():
         else:
             identity_aliases_per_cycle[cycle_num] = None
 
+    # Build filename prefix: timestamp + optional label
+    gen_timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    label = params.get("label") or ""
+    file_tag = f"{gen_timestamp}_{label}" if label else gen_timestamp
+
     for cycle_num, (eppm_rows, fuse_rows) in sorted(cycles_data.items()):
         cycle_dir = os.path.join(base_dir, "data", "simulation", f"cycle_{cycle_num}")
         os.makedirs(cycle_dir, exist_ok=True)
 
-        eppm_path = os.path.join(cycle_dir, "ePPM_export.xlsx")
-        fuse_path = os.path.join(cycle_dir, "Fuse_export.xlsx")
+        eppm_path = os.path.join(cycle_dir, f"ePPM_export_{file_tag}_cycle{cycle_num}.xlsx")
+        fuse_path = os.path.join(cycle_dir, f"Fuse_export_{file_tag}_cycle{cycle_num}.xlsx")
 
         write_excel(eppm_rows, eppm_path, sheet_name="ePPM")
         write_excel(fuse_rows, fuse_path, sheet_name="Fuse")
@@ -1428,19 +1436,19 @@ def main():
         # Write role_changes.xlsx if available for this cycle
         csv_data = role_change_csvs.get(cycle_num)
         if csv_data:
-            rc_path = os.path.join(cycle_dir, "role_changes.xlsx")
+            rc_path = os.path.join(cycle_dir, f"role_changes_{file_tag}_cycle{cycle_num}.xlsx")
             write_excel(csv_data, rc_path, sheet_name="Role Changes")
 
         # Write identity_aliases.xlsx if available for this cycle
         alias_data = identity_aliases_per_cycle.get(cycle_num)
         if alias_data:
-            alias_path = os.path.join(cycle_dir, "identity_aliases.xlsx")
+            alias_path = os.path.join(cycle_dir, f"identity_aliases_{file_tag}_cycle{cycle_num}.xlsx")
             write_excel(alias_data, alias_path, sheet_name="Identity Aliases")
 
         # Write excluded_projects.xlsx if available for this cycle
         excl_data = excluded_projects_per_cycle.get(cycle_num)
         if excl_data:
-            excl_path = os.path.join(cycle_dir, "excluded_projects.xlsx")
+            excl_path = os.path.join(cycle_dir, f"excluded_projects_{file_tag}_cycle{cycle_num}.xlsx")
             write_excel(excl_data, excl_path, sheet_name="Excluded Projects")
 
     # Copy cycle 1 to data/input for easy first run
@@ -1450,14 +1458,11 @@ def main():
     for f in os.listdir(input_dir):
         if f.endswith(".xlsx"):
             os.remove(os.path.join(input_dir, f))
-    shutil.copy2(
-        os.path.join(base_dir, "data", "simulation", "cycle_1", "ePPM_export.xlsx"),
-        os.path.join(input_dir, "ePPM_export.xlsx"),
-    )
-    shutil.copy2(
-        os.path.join(base_dir, "data", "simulation", "cycle_1", "Fuse_export.xlsx"),
-        os.path.join(input_dir, "Fuse_export.xlsx"),
-    )
+    # Find the ePPM and Fuse files in cycle_1 (they have the timestamp now)
+    cycle1_dir = os.path.join(base_dir, "data", "simulation", "cycle_1")
+    for f in os.listdir(cycle1_dir):
+        if f.endswith(".xlsx"):
+            shutil.copy2(os.path.join(cycle1_dir, f), os.path.join(input_dir, f))
     print(f"\nCycle 1 files copied to {input_dir}")
 
     # Print diagnostics

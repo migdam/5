@@ -1421,7 +1421,7 @@ def main():
     # Build filename prefix: timestamp + optional label
     gen_timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
     label = params.get("label") or ""
-    file_tag = f"{gen_timestamp}_{label}" if label else gen_timestamp
+    file_tag = f"SIM_{gen_timestamp}_{label}" if label else f"SIM_{gen_timestamp}"
 
     for cycle_num, (eppm_rows, fuse_rows) in sorted(cycles_data.items()):
         cycle_dir = os.path.join(base_dir, "data", "simulation", f"cycle_{cycle_num}")
